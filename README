@@ -1,0 +1,115 @@
+Thanks for downloading emuMonitor.
+
+emuMonitor is a tool for "palladium" and "zebu" usage information data-collection,
+data-analysis and data-display.
+
+
+The tool use flow is as below:
+# For palladium:
+    installation -> configuration -> sampling -> monitoring
+
+# For zebu:
+    installation -> configuration -> monitoring
+
+
+INSTALLATION:
+================
+To install it, make sure you have Python 3.8.8 installed, you can also install 
+Anaconda3-2021.05 to solve packge dependency. Then run below command to install it:
+Come into install directory, then execute below command.
+
+    python3 install.py
+
+
+CONFIGURATION:
+================
+After installing the tool, come into <EMU_MONITOR_INSTALL_PATH>/config directory,
+then update file config.py for your own configuration.
+# For palladium:
+
+    db_path = ""
+    Z1_test_server = ""
+    Z2_test_server = ""
+    Z1_test_server_host = ""
+    Z2_test_server_host = "
+    project_list_file = ""
+    project_execute_host_file = ""
+    project_user_file = ""
+    project_primary_factors = ""
+
+"db_path" is used to save database files, default is on <EMU_MONITOR_INSTALL_PATH>/db,
+you can re-point it into your own path.
+"Z1_test_server" is used to specify test_server path for palladium Z1.
+"Z2_test_server" is used to specify test_server path for palladium Z2.
+"Z1_test_server_host" is used to specify test_server default execute host for palladium Z1.
+"Z2_test_server_host" is used to specify test_server default execute host for palladium Z2.
+"project_list_file" is used to specify project list
+"project_execute_host_file" is used to specify project execute host file
+"project_user_file" is used to specify project user file
+"project_primary_factors" is used to specify project primary factors
+
+# For zebu:
+
+    module = ""
+    bash = ""
+    check_status_command = ""
+    check_report_command = ""
+
+module is what you need to load before use zRscManager.
+bash is what you need to source before use zRscManager.
+check_status_command is used to check current zebu status.
+check_report_command is used to check history zebu status.
+
+SAMPLING:
+================
+Use bin/psample sample current palladium usage information first, then pmonitor can show
+palladium current/history/utilization information.
+Below is the suggested crontab setting on sampling data.
+
+On Z1 compile host.
+SHELL=/bin/csh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
+0 */2 * * * <PALLADIUM_MONITOR_INSTALL_PATH>/bin/psample -H Z1
+
+On Z2 compile host.
+SHELL=/bin/csh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
+0 */2 * * * <PALLADIUM_MONITOR_INSTALL_PATH>/bin/psample -H Z2
+
+Suggested sampling frequency is 2 hours.
+
+
+MONITORING:
+================
+Execute below command to start palladium monitor function.
+<EMU_MONITOR_INSTALL_PATH>/bin/pmonitor
+
+Execute below command to start zebu monitor function.
+<ZEBU_MONITOR_INSTALL_PATH>/bin/zmonitor
+
+
+
+LICENSE:
+================
+This tool use "GNU GENERAL PUBLIC LICENSE (Version 2)" license.
+For more details please see file "LICENSE".
+
+
+DOC:
+================
+For more documents please see files under "docs".
+
+
+AUTHOR:
+================
+liyanqing.1987
+zhangjingwen.silver
+makun.226
+
+
+OTHERS:
+================
+Please contact below email if any issue or question:
+liyanqing.1987@bytedance.com
+zhangjingwen.silver@bytedance.com
+makun.226@bytedance.com
