@@ -5,10 +5,11 @@ import re
 import sys
 import stat
 import getpass
+import logging
 from datetime import datetime, timedelta
 
 # Import PyQt
-from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QAction, qApp, QTabWidget, QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QMessageBox, QComboBox, QHeaderView, QDateEdit, QAbstractItemView
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QAction, qApp, QTabWidget, QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QMessageBox, QComboBox, QHeaderView, QDateEdit, QAbstractItemView, QFileDialog
 from PyQt5.QtCore import Qt, QDate
 
 # Import matplotlib
@@ -20,12 +21,14 @@ from matplotlib.figure import Figure
 sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/common')
 import common_pyqt5
 import common_zebu
+import common
 
 # Import config file
 sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config')
 import config
 
 os.environ['PYTHONUNBUFFERED'] = '1'
+logger = common.get_logger(level=logging.WARNING)
 
 # ZMONITOR VERSION
 VERSION = "v0.4"
@@ -39,7 +42,7 @@ if 'XDG_RUNTIME_DIR' not in os.environ:
     if not os.path.exists(os.environ['XDG_RUNTIME_DIR']):
         os.makedirs(os.environ['XDG_RUNTIME_DIR'])
 
-    os.chmod(os.environ['XDG_RUNTIME_DIR'], stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+    os.chmod(os.environ['XDG_RUNTIME_DIR'], stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
 
 
 # Init FigureCanvas
@@ -60,6 +63,31 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        if hasattr(config, 'zebu_enable_cost_others_project'):
+            self.enable_cost_others_project = config.zebu_enable_cost_others_project
+        else:
+            logger.error("Could not find the definition of zebu_enable_cost_others_project in config!")
+
+        if hasattr(config, 'zebu_enable_use_default_cost_rate'):
+            self.enable_use_default_cost_rate = config.zebu_enable_use_default_cost_rate
+        else:
+            logger.error("Could not find the definition of zebu_enable_use_default_cost_rate in config!")
+
+        project_list_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/zebu/project_list'
+        project_execute_host_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/zebu/project_execute_host'
+        project_user_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/zebu/project_user_file'
+
+        self.project_list, self.default_project_cost_dic = common.parse_project_list_file(project_list_file)
+
+        if self.enable_cost_others_project:
+            self.project_list.append('others')
+            self.default_project_cost_dic['others'] = 0
+
+        self.project_execute_host_dic = common.parse_project_proportion_file(project_execute_host_file)
+        self.project_user_dic = common.parse_project_proportion_file(project_user_file)
+
+        self.project_proportion_dic = {'execute_host': self.project_execute_host_dic, 'user': self.project_user_dic}
+
         self.init_ui()
 
     def init_ui(self):
@@ -77,20 +105,23 @@ class MainWindow(QMainWindow):
         self.current_tab = QWidget()
         self.history_tab = QWidget()
         self.utilization_tab = QWidget()
+        self.cost_tab = QWidget()
 
         # Add the sub-tabs into main Tab widget
         self.main_tab.addTab(self.current_tab, 'CURRENT')
         self.main_tab.addTab(self.history_tab, 'HISTORY')
         self.main_tab.addTab(self.utilization_tab, 'UTILIZATION')
+        self.main_tab.addTab(self.cost_tab, 'COST')
 
         # Generate the sub-tabs
         self.gen_current_tab()
         self.gen_history_tab()
         self.gen_utilization_tab()
+        self.gen_cost_tab()
 
         # Show main window
         self.setWindowTitle('zebuMonitor')
-        self.resize(1100, 700)
+        self.resize(1111, 620)
         common_pyqt5.center_window(self)
 
     def gen_menubar(self):
@@ -105,6 +136,19 @@ class MainWindow(QMainWindow):
 
         file_menu = menubar.addMenu('File')
         file_menu.addAction(exit_action)
+
+        # Setup
+        enable_use_default_cost_rate_action = QAction('Enable Use Default Cost Rate', self, checkable=True)
+        enable_use_default_cost_rate_action.setChecked(self.enable_use_default_cost_rate)
+        enable_use_default_cost_rate_action.triggered.connect(self.func_enable_use_default_cost_rate)
+
+        enable_cost_others_project_action = QAction('Enable Cost Others Project', self, checkable=True)
+        enable_cost_others_project_action.setChecked(self.enable_cost_others_project)
+        enable_cost_others_project_action.triggered.connect(self.func_enable_cost_others_project)
+
+        setup_menu = menubar.addMenu('Setup')
+        setup_menu.addAction(enable_use_default_cost_rate_action)
+        setup_menu.addAction(enable_cost_others_project_action)
 
         # Help
         version_action = QAction('Version', self)
@@ -218,7 +262,7 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         current_tab_refresh_button = QPushButton('Refresh', self.current_tab_frame)
         current_tab_refresh_button.setStyleSheet("font-weight: bold;")
         current_tab_refresh_button.clicked.connect(self.gen_current_tab_table)
-        current_tab_refresh_button.setFixedSize(2*current_tab_refresh_button.sizeHint().width(), 2*current_tab_refresh_button.sizeHint().height())
+        current_tab_refresh_button.setFixedSize(2 * current_tab_refresh_button.sizeHint().width(), 2 * current_tab_refresh_button.sizeHint().height())
 
         # self.current_tab_frame - Grid
         current_tab_frame_grid = QGridLayout()
@@ -361,7 +405,10 @@ zebuMonitor is an open source software for zebu information data-collection, dat
             for line in stdout.split('\n'):
                 current_zebu_info.append(line.strip())
 
-            self.current_zebu_dic = common_zebu.parse_current_zebu_info(current_zebu_info)
+            self.current_zebu_dic, self.zebu_module_dic = common_zebu.parse_current_zebu_info(current_zebu_info)
+
+        if os.path.isfile('ZEBU_GLOBAL_SYSTEM_DIR_global_mngt.db'):
+            os.system('rm ZEBU_GLOBAL_SYSTEM_DIR_global_mngt.db')
 
     def gen_history_tab(self):
         """
@@ -453,7 +500,7 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         history_tab_refresh_button = QPushButton('Refresh', self.history_tab_frame)
         history_tab_refresh_button.setStyleSheet("font-weight: bold;")
         history_tab_refresh_button.clicked.connect(self.refresh_history_tab_combo)
-        history_tab_refresh_button.setFixedSize(2*history_tab_refresh_button.sizeHint().width(), 2*history_tab_refresh_button.sizeHint().height())
+        history_tab_refresh_button.setFixedSize(2 * history_tab_refresh_button.sizeHint().width(), 2 * history_tab_refresh_button.sizeHint().height())
 
         # self.history_tab_frame - Grid
         history_tab_frame_grid = QGridLayout()
@@ -860,11 +907,31 @@ zebuMonitor is an open source software for zebu information data-collection, dat
 
     def get_module_count(self, date, unit, module, sub_module):
         """
-        Read and get module count
+        Read self.zebu_module_dic and get module count
         """
+        date_list = list(self.zebu_module_dic.keys())
+        first_dila_date = date_list[0]
+        last_dila_date = date_list[-1]
+        first_dila_date_utc = datetime.strptime(first_dila_date, '%Y-%m-%d').date()
+        last_dila_date_utc = datetime.strptime(last_dila_date, '%Y-%m-%d').date()
+        check_date_utc = datetime.strptime(date, '%Y-%m-%d').date()
+
+        if check_date_utc < first_dila_date_utc:
+            module_list = self.zebu_module_dic[first_dila_date]
+        elif check_date_utc >= last_dila_date_utc:
+            module_list = self.zebu_module_dic[last_dila_date]
+        else:
+            for i in range(len(date_list) - 1):
+                start_date = date_list[i]
+                end_date = date_list[i + 1]
+                start_date_utc = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_utc = datetime.strptime(end_date, '%Y-%m-%d').date()
+                if start_date_utc <= check_date_utc <= end_date_utc:
+                    module_list = self.zebu_module_dic[start_date]
+
         module_count = 0
 
-        for modules in self.current_zebu_dic['module_info_list']:
+        for modules in module_list:
             if re.search(unit, modules) or unit == 'ALL':
                 if re.search(module, modules) or module == 'ALL':
                     if re.search(sub_module, modules) or sub_module == 'ALL':
@@ -885,6 +952,378 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         axes.tick_params(axis='x', rotation=15)
         axes.grid()
         self.utilization_figure_canvas.draw()
+
+    def gen_cost_tab(self):
+        """
+        Generate the COST tab on zebuMonitor GUI, show zebu cost informations.
+        """
+        # self.cost_tab
+        self.cost_tab_frame = QFrame(self.cost_tab)
+        self.cost_tab_frame.setFrameShadow(QFrame.Raised)
+        self.cost_tab_frame.setFrameShape(QFrame.Box)
+
+        self.cost_tab_table = QTableWidget(self.cost_tab)
+
+        # self.utilization_tab - Grid
+        cost_tab_grid = QGridLayout()
+
+        cost_tab_grid.addWidget(self.cost_tab_frame, 0, 0)
+        cost_tab_grid.addWidget(self.cost_tab_table, 1, 0)
+
+        cost_tab_grid.setRowStretch(0, 1)
+        cost_tab_grid.setRowStretch(1, 20)
+
+        self.cost_tab.setLayout(cost_tab_grid)
+
+        # Generate sub-frame
+        self.gen_cost_tab_frame()
+        self.gen_cost_tab_table()
+
+    def gen_cost_tab_frame(self):
+        """
+        Generate self.cost_tab_frame, which contains filter items.
+        """
+        cost_tab_unit_label = QLabel('Unit', self.cost_tab_frame)
+        cost_tab_unit_label.setStyleSheet("font-weight: bold;")
+        cost_tab_unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.cost_tab_unit_combo = QComboBox(self.cost_tab_frame)
+        self.cost_tab_unit_combo.activated.connect(self.cost_tab_unit_combo_activated)
+        self.cost_tab_unit_combo.activated.connect(self.gen_cost_tab_table)
+
+        cost_tab_module_label = QLabel('Module', self.cost_tab_frame)
+        cost_tab_module_label.setStyleSheet("font-weight: bold;")
+        cost_tab_module_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.cost_tab_module_combo = QComboBox(self.cost_tab_frame)
+        self.cost_tab_module_combo.activated.connect(self.cost_tab_module_combo_activated)
+        self.cost_tab_module_combo.activated.connect(self.gen_cost_tab_table)
+
+        cost_tab_sub_module_label = QLabel('Sub Module', self.cost_tab_frame)
+        cost_tab_sub_module_label.setStyleSheet("font-weight: bold;")
+        cost_tab_sub_module_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.cost_tab_sub_module_combo = QComboBox(self.cost_tab_frame)
+        self.cost_tab_sub_module_combo.activated.connect(self.cost_tab_sub_module_combo_activated)
+        self.cost_tab_sub_module_combo.activated.connect(self.gen_cost_tab_table)
+
+        cost_tab_start_date_label = QLabel('Start Date', self.cost_tab_frame)
+        cost_tab_start_date_label.setStyleSheet("font-weight: bold;")
+        cost_tab_start_date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.cost_tab_start_date_edit = QDateEdit(self.cost_tab_frame)
+        self.cost_tab_start_date_edit.setDisplayFormat('yyyy-MM-dd')
+        self.cost_tab_start_date_edit.setMinimumDate(QDate.currentDate().addDays(-3652))
+        self.cost_tab_start_date_edit.setMaximumDate(QDate.currentDate().addDays(0))
+        self.cost_tab_start_date_edit.setCalendarPopup(True)
+        self.cost_tab_start_date_edit.setDate(QDate.currentDate().addMonths(-1))
+        self.cost_tab_start_date_edit.dateChanged.connect(self.gen_cost_tab_table)
+
+        cost_tab_end_date_label = QLabel('End Date', self.cost_tab_frame)
+        cost_tab_end_date_label.setStyleSheet("font-weight: bold;")
+        cost_tab_end_date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.cost_tab_end_date_edit = QDateEdit(self.cost_tab_frame)
+        self.cost_tab_end_date_edit.setDisplayFormat('yyyy-MM-dd')
+        self.cost_tab_end_date_edit.setMinimumDate(QDate.currentDate().addDays(-3652))
+        self.cost_tab_end_date_edit.setMaximumDate(QDate.currentDate().addDays(0))
+        self.cost_tab_end_date_edit.setCalendarPopup(True)
+        self.cost_tab_end_date_edit.setDate(QDate.currentDate())
+        self.utilization_tab_end_date_edit.dateChanged.connect(self.gen_cost_tab_table)
+
+        cost_tab_export_button = QPushButton('Export', self.cost_tab_frame)
+        cost_tab_export_button.setStyleSheet('''QPushButton:hover{background:rgb(170, 255, 127);}''')
+        cost_tab_export_button.clicked.connect(self.export_cost_info)
+
+        # self.cost_tab_frame0 - Grid
+        cost_tab_frame_grid = QGridLayout()
+
+        cost_tab_frame_grid.addWidget(cost_tab_unit_label, 0, 0)
+        cost_tab_frame_grid.addWidget(self.cost_tab_unit_combo, 0, 1)
+        cost_tab_frame_grid.addWidget(cost_tab_module_label, 0, 2)
+        cost_tab_frame_grid.addWidget(self.cost_tab_module_combo, 0, 3)
+        cost_tab_frame_grid.addWidget(cost_tab_sub_module_label, 0, 4)
+        cost_tab_frame_grid.addWidget(self.cost_tab_sub_module_combo, 0, 5)
+        cost_tab_frame_grid.addWidget(cost_tab_start_date_label, 0, 6)
+        cost_tab_frame_grid.addWidget(self.cost_tab_start_date_edit, 0, 7)
+        cost_tab_frame_grid.addWidget(cost_tab_end_date_label, 0, 8)
+        cost_tab_frame_grid.addWidget(self.cost_tab_end_date_edit, 0, 9)
+        cost_tab_frame_grid.addWidget(cost_tab_export_button, 0, 10)
+
+        cost_tab_frame_grid.setColumnStretch(0, 1)
+        cost_tab_frame_grid.setColumnStretch(1, 1)
+        cost_tab_frame_grid.setColumnStretch(2, 1)
+        cost_tab_frame_grid.setColumnStretch(3, 1)
+        cost_tab_frame_grid.setColumnStretch(4, 1)
+        cost_tab_frame_grid.setColumnStretch(5, 1)
+        cost_tab_frame_grid.setColumnStretch(6, 1)
+        cost_tab_frame_grid.setColumnStretch(7, 1)
+        cost_tab_frame_grid.setColumnStretch(8, 1)
+        cost_tab_frame_grid.setColumnStretch(9, 1)
+
+        self.cost_tab_frame.setLayout(cost_tab_frame_grid)
+        self.init_cost_tab_combo()
+
+    def init_cost_tab_combo(self):
+        """
+        Initialization self.cost_tab combo settings.
+        """
+        self.cost_tab_unit_combo.addItems(['ALL'] + self.current_zebu_dic['unit_list'])
+        self.cost_tab_module_combo.addItems(['ALL'] + self.current_zebu_dic['module_list'])
+        self.cost_tab_sub_module_combo.addItems(['ALL'] + self.current_zebu_dic['sub_module_list'])
+
+    def cost_tab_unit_combo_activated(self):
+        """
+        If self.cost_tab_unit_combo current value is "ALL", set self.cost_tab_module_combo and self.cost_tab_sub_module_combo to "ALL".
+        """
+        if self.cost_tab_unit_combo.currentText() == 'ALL':
+            self.cost_tab_module_combo.setCurrentText('ALL')
+            self.cost_tab_sub_module_combo.setCurrentText('ALL')
+
+    def cost_tab_module_combo_activated(self):
+        if self.cost_tab_module_combo.currentText() != 'ALL':
+            if self.cost_tab_unit_combo.currentText() == 'ALL':
+                self.cost_tab_unit_combo.setCurrentIndex(1)
+        else:
+            self.cost_tab_sub_module_combo.setCurrentText('ALL')
+
+    def cost_tab_sub_module_combo_activated(self):
+        if self.cost_tab_sub_module_combo.currentText() != 'ALL':
+            if self.cost_tab_unit_combo.currentText() == 'ALL' or self.cost_tab_module_combo.currentText() == 'ALL':
+                self.cost_tab_unit_combo.setCurrentIndex(1)
+                self.cost_tab_module_combo.setCurrentIndex(1)
+
+    def get_cost_info(self, unit, module, sub_module, start_date, end_date):
+        # Print loading cost informaiton message.
+        logger.critical('Loading cost information, please wait a moment ...')
+
+        cost_info_dic = {}
+
+        check_report_command = re.sub('FROMDATE', start_date, config.check_report_command)
+        check_report_command = re.sub('TODATE', end_date, check_report_command)
+
+        # Run zRscManager to get utilization information
+        sys_report_lines = os.popen(check_report_command).read().split('\n')
+
+        end_date_utc = datetime.strptime(end_date + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+
+        # Read sys_report lines
+        for line in sys_report_lines:
+            if line:
+                # Split line in to useful information
+                start_time, end_time, modules, user, pid, host = line.split(',')
+
+                if host.strip() == 'None':
+                    continue
+
+                modules_list = modules.strip('()').split(' ')
+
+                for module_name in modules_list:
+                    if my_match := re.match(r'(\S+)\.(\S+)\.(\S+)', module_name):
+                        record_unit = my_match.group(1)
+                        record_module = my_match.group(2)
+                        record_sub_module = my_match.group(3)
+
+                        if (unit != 'ALL' and record_unit != unit) or (module != 'ALL' and record_module != module) or (sub_module != 'ALL' and sub_module != record_sub_module):
+                            continue
+
+                        cost_info_dic.setdefault(record_unit, {})
+                        cost_info_dic[record_unit].setdefault(record_module, {})
+                        cost_info_dic[record_unit][record_module].setdefault(record_sub_module, {})
+
+                        # If job begins before user specified start_date
+                        if start_time == '' or datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S") < datetime.strptime(start_date, "%Y-%m-%d"):
+                            start_time = start_date + ' 00:00:00'
+
+                        # If job still running and doesn't have end time
+                        if end_time == '':
+                            end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                        # If job ends after user specified end_date
+                        if datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S") > end_date_utc:
+                            end_time = end_date_utc.strftime("%Y-%m-%d %H:%M:%S")
+
+                        # Transfer time into utc format
+                        start_time_utc = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+                        end_time_utc = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
+
+                        total_seconds = (end_time_utc - start_time_utc).total_seconds()
+
+                        if hasattr(config, 'zebu_project_primary_factors'):
+                            project_dic = common.get_project_info(config.zebu_project_primary_factors, self.project_proportion_dic, execute_host=host, user=user)
+
+                        else:
+                            logger.error("zebu_project_primary_factors doesn't has dinifition, please check!")
+
+                        if not project_dic:
+                            if 'UNKOWN' not in cost_info_dic[record_unit][record_module][record_sub_module]:
+                                cost_info_dic[record_unit][record_module][record_sub_module].setdefault('UNKOWN', total_seconds)
+                            else:
+                                cost_info_dic[record_unit][record_module][record_sub_module]['UNKOWN'] += total_seconds
+                        else:
+                            for project in project_dic.keys():
+                                if project not in cost_info_dic[record_unit][record_module][record_sub_module]:
+                                    cost_info_dic[record_unit][record_module][record_sub_module].setdefault(project, project_dic[project] * total_seconds)
+                                else:
+                                    cost_info_dic[record_unit][record_module][record_sub_module][project] += project_dic[project] * total_seconds
+
+                                if project not in self.project_list:
+                                    self.project_list.append(project)
+
+        return cost_info_dic
+
+    def gen_cost_tab_table(self):
+        start_date = self.cost_tab_start_date_edit.date().toString(Qt.ISODate)
+        end_date = self.cost_tab_end_date_edit.date().toString(Qt.ISODate)
+
+        unit = self.cost_tab_unit_combo.currentText().strip()
+        module = self.cost_tab_module_combo.currentText().strip()
+        sub_module = self.cost_tab_sub_module_combo.currentText().strip()
+
+        if unit and module and sub_module and start_date and end_date and start_date <= end_date:
+            cost_dic = self.get_cost_info(unit, module, sub_module, start_date, end_date)
+
+            self.cost_tab_table_title_list = ['Unit', 'Module', 'Sub Module', 'TotalHours']
+            self.cost_tab_table_title_list.extend(self.project_list)
+
+            self.cost_tab_table.setShowGrid(True)
+            self.cost_tab_table.setSortingEnabled(True)
+            self.cost_tab_table.setColumnCount(0)
+            self.cost_tab_table.setColumnCount(len(self.cost_tab_table_title_list))
+            self.cost_tab_table.setHorizontalHeaderLabels(self.cost_tab_table_title_list)
+            self.cost_tab_table.setColumnWidth(0, 120)
+            self.cost_tab_table.setColumnWidth(1, 120)
+            self.cost_tab_table.setColumnWidth(2, 120)
+            self.cost_tab_table.setColumnWidth(3, 120)
+
+            for column in range(4, len(self.cost_tab_table_title_list)):
+                self.cost_tab_table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
+
+                # Set self.cost_tab_table row length.
+                row_length = 0
+
+                for unit in cost_dic.keys():
+                    for module in cost_dic[unit].keys():
+                        for sub_module in cost_dic[unit][module].keys():
+                            row_length += 1
+
+                self.cost_tab_table.setRowCount(0)
+                self.cost_tab_table.setRowCount(row_length)
+
+                # Fill self.cost_tab_table items.
+                i = -1
+
+                for unit in cost_dic.keys():
+                    for module in cost_dic[unit].keys():
+                        for sub_module in cost_dic[unit][module].keys():
+                            i += 1
+
+                            # Get total_runtime information.
+                            total_sampling = 0
+                            others_sampling = 0
+
+                            for project in cost_dic[unit][module][sub_module].keys():
+                                project_sampling = cost_dic[unit][module][sub_module][project]
+                                total_sampling += project_sampling
+
+                                if project not in self.project_list:
+                                    others_sampling += cost_dic[unit][module][sub_module][project]
+
+                            # Fill "Unit" item.
+                            item = QTableWidgetItem(unit)
+                            self.cost_tab_table.setItem(i, 0, item)
+
+                            # Fill "Module" item
+                            item = QTableWidgetItem(module)
+                            self.cost_tab_table.setItem(i, 1, item)
+
+                            # Fill "Sub Module" item
+                            item = QTableWidgetItem(sub_module)
+                            self.cost_tab_table.setItem(i, 2, item)
+
+                            # Fill "TotalHours" item
+                            total_sampling = total_sampling if self.enable_cost_others_project else (total_sampling - others_sampling)
+
+                            item = QTableWidgetItem(str(round(total_sampling / 3600, 2)))
+                            self.cost_tab_table.setItem(i, 3, item)
+
+                            # Fill "project*" item.
+                            j = 3
+                            for project in self.project_list:
+                                if project in cost_dic[unit][module][sub_module]:
+                                    project_sampling = cost_dic[unit][module][sub_module][project]
+                                else:
+                                    project_sampling = 0
+
+                                if project == 'others':
+                                    project_sampling += others_sampling
+
+                                if total_sampling == 0:
+                                    if self.enable_use_default_cost_rate:
+                                        project_rate = self.default_project_cost_dic[project]
+                                    else:
+                                        project_rate = 0
+                                else:
+                                    project_rate = round(100 * (project_sampling / total_sampling), 2)
+
+                                if re.match(r'^(\d+)\.0+$', str(project_rate)):
+                                    my_match = re.match(r'^(\d+)\.0+$', str(project_rate))
+                                    project_rate = int(my_match.group(1))
+
+                                item = QTableWidgetItem()
+                                item.setData(Qt.DisplayRole, str(project_rate) + '%')
+
+                                if total_sampling == 0:
+                                    item.setForeground(Qt.gray)
+                                elif (project == 'others') and (project_rate != 0):
+                                    item.setForeground(Qt.red)
+
+                                j += 1
+                                self.cost_tab_table.setItem(i, j, item)
+
+    def export_cost_info(self):
+        """
+        Export self.cost_tab_table into an Excel.
+        """
+        (cost_info_file, file_type) = QFileDialog.getSaveFileName(self, 'Export cost info', './zebu_cost.xlsx', 'Excel (*.xlsx)')
+
+        if cost_info_file:
+            # Get self.cost_tab_label content.
+            cost_tab_table_list = []
+            cost_tab_table_list.append(self.cost_tab_table_title_list)
+
+            for row in range(self.cost_tab_table.rowCount()):
+                row_list = []
+
+                for column in range(self.cost_tab_table.columnCount()):
+                    row_list.append(self.cost_tab_table.item(row, column).text())
+
+                cost_tab_table_list.append(row_list)
+
+            # Write excel
+            logger.critical('Writing cost info file "' + str(cost_info_file) + '" ...')
+
+            common.write_excel(excel_file=cost_info_file, contents_list=cost_tab_table_list, specified_sheet_name='cost_info')
+
+    def func_enable_cost_others_project(self, state):
+        """
+        Class no-project license usage to "others" project with self.enable_cost_others_project.
+        """
+        if state:
+            self.enable_cost_others_project = True
+
+            if 'others' not in self.project_list:
+                self.project_list.append('others')
+        else:
+            self.enable_cost_others_project = False
+
+            if 'others' in self.project_list:
+                self.project_list.remove('others')
+
+        self.gen_cost_tab_table()
+
+    def func_enable_use_default_cost_rate(self, state):
+        if state:
+            self.enable_use_default_cost_rate = True
+        else:
+            self.enable_use_default_cost_rate = False
+
+        self.gen_cost_tab_table()
 
 
 #################

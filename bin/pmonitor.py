@@ -34,6 +34,7 @@ else:
     import config
 
 os.environ['PYTHONUNBUFFERED'] = '1'
+logger = common.get_logger(level=logging.WARNING)
 
 # Solve some unexpected warning message.
 if 'XDG_RUNTIME_DIR' not in os.environ:
@@ -43,7 +44,7 @@ if 'XDG_RUNTIME_DIR' not in os.environ:
     if not os.path.exists(os.environ['XDG_RUNTIME_DIR']):
         os.makedirs(os.environ['XDG_RUNTIME_DIR'])
 
-    os.chmod(os.environ['XDG_RUNTIME_DIR'], stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+    os.chmod(os.environ['XDG_RUNTIME_DIR'], stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
 
 
 def read_args():
@@ -60,9 +61,9 @@ def read_args():
     args = parser.parse_args()
 
     if args.debug:
-        logging.basicConfig(format='[%(asctime)s] %(message)s', level=logging.DEBUG, datefmt='%Y-%m-%d %H:%M:%S')
+        logger = common.get_logger(level=logging.DEBUG)
     else:
-        logging.basicConfig(format='[%(asctime)s] %(message)s', level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
+        logger = common.get_logger(level=logging.WARNING)
 
 
 class FigureCanvas(FigureCanvasQTAgg):
@@ -84,9 +85,32 @@ class MainWindow(QMainWindow):
         self.hostiry_palladium_dic = {}
         self.history_palladium_path_dic = self.parse_db_path()
 
+        if hasattr(config, 'palladium_enable_cost_others_project'):
+            self.enable_cost_others_project = config.palladium_enable_cost_others_project
+        else:
+            logger.error("Could not find the definition of zebu_enable_cost_others_project in config!")
+
+        if hasattr(config, 'palladium_enable_use_default_cost_rate'):
+            self.enable_use_default_cost_rate = config.palladium_enable_use_default_cost_rate
+        else:
+            logger.error("Could not find the definition of zebu_enable_use_default_cost_rate in config!")
+
         # Get project related information.
-        self.project_list = self.parse_project_list_file()
-        self.project_list.append('others')
+        Z1_project_list_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/Z1/project_list'
+        self.Z1_project_list, self.Z1_default_project_cost_dic = common.parse_project_list_file(Z1_project_list_file)
+
+        Z2_project_list_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/Z2/project_list'
+        self.Z2_project_list, self.Z2_default_project_cost_dic = common.parse_project_list_file(Z2_project_list_file)
+
+        self.total_project_list = list(set(self.Z1_project_list).union(self.Z2_project_list))
+
+        self.Z1_default_project_cost_dic['others'] = 0
+        self.Z2_default_project_cost_dic['others'] = 0
+
+        if self.enable_cost_others_project:
+            self.Z1_project_list.append('others')
+            self.Z2_project_list.append('others')
+            self.total_project_list.append('others')
 
         self.init_ui()
 
@@ -141,25 +165,6 @@ class MainWindow(QMainWindow):
 
         return history_palladium_path_dic
 
-    def parse_project_list_file(self):
-        """
-        Parse project_list_file and return List "project_list".
-        """
-        project_list = []
-
-        if config.project_list_file and os.path.exists(config.project_list_file):
-            with open(config.project_list_file, 'r') as PLF:
-                for line in PLF.readlines():
-                    line = line.strip()
-
-                    if re.match(r'^\s*#.*$', line) or re.match(r'^\s*$', line):
-                        continue
-                    else:
-                        if line not in project_list:
-                            project_list.append(line)
-
-        return project_list
-
     def init_ui(self):
         """
         Main process, draw the main graphic frame.
@@ -207,6 +212,19 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu('File')
         file_menu.addAction(exit_action)
 
+        # Setup
+        enable_use_default_cost_rate_action = QAction('Enable Use Default Cost Rate', self, checkable=True)
+        enable_use_default_cost_rate_action.setChecked(self.enable_use_default_cost_rate)
+        enable_use_default_cost_rate_action.triggered.connect(self.func_enable_use_default_cost_rate)
+
+        enable_cost_others_project_action = QAction('Enable Cost Others Project', self, checkable=True)
+        enable_cost_others_project_action.setChecked(self.enable_cost_others_project)
+        enable_cost_others_project_action.triggered.connect(self.func_enable_cost_others_project)
+
+        setup_menu = menubar.addMenu('Setup')
+        setup_menu.addAction(enable_use_default_cost_rate_action)
+        setup_menu.addAction(enable_cost_others_project_action)
+
         # Help
         version_action = QAction('Version', self)
         version_action.triggered.connect(self.show_version)
@@ -241,7 +259,7 @@ palladiumMonitor is an open source software for palladium information data-colle
         """
         Show the specified warning message on both of command line and GUI window.
         """
-        logging.warning(warning_message)
+        logger.warning(warning_message)
         QMessageBox.warning(self, 'palladiumMonitor Warning', warning_message)
 # Common sub-functions (end) #
 
@@ -434,7 +452,7 @@ palladiumMonitor is an open source software for palladium information data-colle
                     # Update self.current_tab_table.
                     self.gen_current_tab_table()
                 else:
-                    logging.warning('*Warning*: Not find any valid palladium information.')
+                    logger.warning('Not find any valid palladium information.')
 
     def update_current_tab_frame(self):
         """
@@ -1145,7 +1163,7 @@ palladiumMonitor is an open source software for palladium information data-colle
         cost_dic = {<hardware>: {<emulator>: {<project>: <project_sampling>}}}
         """
         # Print loading cost informaiton message.
-        logging.critical('Loading cost information, please wait a moment ...')
+        logger.critical('Loading cost information, please wait a moment ...')
 
         begin_date = self.cost_tab_start_date_edit.date().toPyDate()
         end_date = self.cost_tab_end_date_edit.date().toPyDate()
@@ -1185,7 +1203,7 @@ palladiumMonitor is an open source software for palladium information data-colle
                                         date = line_s[0].strip()
                                         history_project_cost_dic = {cost_info.split(':')[0].strip(): int(cost_info.split(':')[1].strip()) for cost_info in line_s[1:]}
                                     else:
-                                        logging.warning('*Warning*: Could not find valid infomation in cost file line: ' + line + '!')
+                                        logger.warning('Could not find valid infomation in cost file line: ' + line + '!')
                                         continue
 
                                     total_cost_dic[date] = history_project_cost_dic
@@ -1194,11 +1212,12 @@ palladiumMonitor is an open source software for palladium information data-colle
                                 cost_date = (begin_date + datetime.timedelta(days=day)).strftime('%Y-%m-%d')
 
                                 if cost_date in total_cost_dic:
-                                    for project in total_cost_dic[date]:
+                                    for project in total_cost_dic[cost_date]:
                                         if project in cost_dic[hardware][emulator]:
-                                            cost_dic[hardware][emulator][project] += total_cost_dic[date][project]
+                                            cost_dic[hardware][emulator][project] += total_cost_dic[cost_date][project]
                                         else:
-                                            cost_dic[hardware][emulator].setdefault(project, total_cost_dic[date][project])
+                                            cost_dic[hardware][emulator].setdefault(project, total_cost_dic[cost_date][project])
+
         return cost_dic
 
     def gen_cost_tab_table(self):
@@ -1207,7 +1226,7 @@ palladiumMonitor is an open source software for palladium information data-colle
         """
         cost_dic = self.get_cost_info()
         self.cost_tab_table_title_list = ['Hardware', 'Emulator', 'TotalSamping']
-        self.cost_tab_table_title_list.extend(self.project_list)
+        self.cost_tab_table_title_list.extend(self.total_project_list)
 
         self.cost_tab_table.setShowGrid(True)
         self.cost_tab_table.setSortingEnabled(True)
@@ -1235,6 +1254,13 @@ palladiumMonitor is an open source software for palladium information data-colle
         i = -1
 
         for hardware in cost_dic.keys():
+            if hardware == 'Z1':
+                project_list = self.Z1_project_list
+                default_project_cost_dic = self.Z1_default_project_cost_dic
+            elif hardware == 'Z2':
+                project_list = self.Z2_project_list
+                default_project_cost_dic = self.Z2_default_project_cost_dic
+
             for emulator in cost_dic[hardware].keys():
                 i += 1
 
@@ -1246,7 +1272,7 @@ palladiumMonitor is an open source software for palladium information data-colle
                     project_sampling = cost_dic[hardware][emulator][project]
                     total_sampling += project_sampling
 
-                    if project not in self.project_list:
+                    if project not in project_list:
                         others_sampling += cost_dic[hardware][emulator][project]
 
                 # Fill "Hardware" item.
@@ -1258,12 +1284,15 @@ palladiumMonitor is an open source software for palladium information data-colle
                 self.cost_tab_table.setItem(i, 1, item)
 
                 # Fill "total_samping" item
+                total_sampling = total_sampling if self.enable_cost_others_project else (total_sampling - others_sampling)
+
                 item = QTableWidgetItem(str(total_sampling))
                 self.cost_tab_table.setItem(i, 2, item)
 
                 # Fill "project*" item.
                 j = 2
-                for project in self.project_list:
+
+                for project in self.total_project_list:
                     if project in cost_dic[hardware][emulator]:
                         project_sampling = cost_dic[hardware][emulator][project]
                     else:
@@ -1273,7 +1302,11 @@ palladiumMonitor is an open source software for palladium information data-colle
                         project_sampling += others_sampling
 
                     if total_sampling == 0:
-                        project_rate = 0
+                        if (project in default_project_cost_dic) and self.enable_use_default_cost_rate:
+                            project_rate = default_project_cost_dic[project]
+                        else:
+                            project_rate = 0
+
                     else:
                         project_rate = round(100 * (project_sampling / total_sampling), 2)
 
@@ -1351,16 +1384,54 @@ palladiumMonitor is an open source software for palladium information data-colle
                 cost_tab_table_list.append(row_list)
 
             # Write excel
-            logging.critical('Writing cost info file "' + str(cost_info_file) + '" ...')
+            logger.critical('Writing cost info file "' + str(cost_info_file) + '" ...')
 
             common.write_excel(excel_file=cost_info_file, contents_list=cost_tab_table_list, specified_sheet_name='cost_info')
+
+    def func_enable_cost_others_project(self, state):
+        """
+        Class no-project license usage to "others" project with self.enable_cost_others_project.
+        """
+        if state:
+            self.enable_cost_others_project = True
+
+            if 'others' not in self.total_project_list:
+                self.total_project_list.append('others')
+
+            if 'others' not in self.Z1_project_list:
+                self.Z1_project_list.append('others')
+
+            if 'others' not in self.Z2_project_list:
+                self.Z2_project_list.append('others')
+
+        else:
+            self.enable_cost_others_project = False
+
+            if 'others' in self.total_project_list:
+                self.total_project_list.remove('others')
+
+            if 'others' in self.Z1_project_list:
+                self.Z1_project_list.remove('others')
+
+            if 'others' in self.Z2_project_list:
+                self.Z2_project_list.remove('others')
+
+        self.gen_cost_tab_table()
+
+    def func_enable_use_default_cost_rate(self, state):
+        if state:
+            self.enable_use_default_cost_rate = True
+        else:
+            self.enable_use_default_cost_rate = False
+
+        self.gen_cost_tab_table()
 # For cost TAB (end) #
 
     def close_event(self, QCloseEvent):
         """
         When window close, post-process.
         """
-        logging.critical('Bye')
+        logger.critical('Bye')
 
 
 class ShowMessage(QThread):

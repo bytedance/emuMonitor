@@ -1,5 +1,13 @@
 import re
 import copy
+import os
+import sys
+import yaml
+from datetime import datetime
+
+# Import config file
+sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config')
+import config
 
 
 def parse_current_zebu_info(current_zebu_info):
@@ -66,7 +74,39 @@ def parse_current_zebu_info(current_zebu_info):
 
             current_zebu_dic['row'] += 1
 
-    return current_zebu_dic
+    module_dic = record_module_info(current_zebu_dic['module_info_list'])
+
+    return current_zebu_dic, module_dic
+
+
+def record_module_info(module_info_list):
+    """
+    Read module_list.yaml and record new data
+    """
+    db_path = config.db_path
+    db_file = db_path + '/zebu_module_list.yaml'
+    current_time = datetime.now().strftime("%Y-%m-%d")
+    current_module_dic = {current_time: module_info_list}
+
+    try:
+        with open(db_file, 'r') as f:
+            module_dic = yaml.load(f, Loader=yaml.FullLoader)
+            dates = [datetime.strptime(date, '%Y-%m-%d') for date in module_dic.keys()]
+            max_date = max(dates, key=lambda x: x.timestamp()).strftime('%Y-%m-%d')
+
+            if not set(module_dic[max_date]) == set(module_info_list):
+                module_dic.update(current_module_dic)
+
+    except Exception:
+        module_dic = current_module_dic
+
+    try:
+        with open(db_file, 'w') as f:
+            yaml.dump(module_dic, f)
+    except Exception:
+        print('Can\'t update zebu module list, please contact CAD for help.')
+
+    return module_dic
 
 
 def parse_history_zebu_info(sys_report_lines, specified_unit='', specified_module='', specified_sub_module='', specified_user='', specified_host='', specified_pid=''):

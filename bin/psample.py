@@ -10,6 +10,7 @@ import logging
 
 sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/common')
 import common_palladium
+import common
 
 # Import local config file if exists.
 LOCAL_CONFIG_DIR = str(os.environ['HOME']) + '/.palladiumMonitor/config'
@@ -24,6 +25,7 @@ else:
 
 
 os.environ["PYTHONUNBUFFERED"] = '1'
+logger = common.get_logger(level=logging.WARNING)
 
 
 def read_args():
@@ -44,9 +46,9 @@ def read_args():
     args = parser.parse_args()
 
     if args.debug:
-        logging.basicConfig(format='[%(asctime)s] %(message)s', level=logging.DEBUG, datefmt='%Y-%m-%d %H:%M:%S')
+        logger = common.get_logger(level=logging.DEBUG)
     else:
-        logging.basicConfig(format='[%(asctime)s] %(message)s', level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
+        logger = common.get_logger(level=logging.WARNING)
 
     return (args.hardware)
 
@@ -68,10 +70,17 @@ class Sampling:
         self.palladium_dic = {}
 
         # Get project related information.
-        self.project_list = self.parse_project_list_file()
+        project_list_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + r'/config/palladium/%s/project_list' % hardware
+        project_execute_host_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/%s/project_execute_host' % hardware
+        project_user_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/%s/project_user_file' % hardware
+
+        self.project_list, self.default_project_cost_dic = common.parse_project_list_file(project_list_file)
         self.project_list.append('others')
-        self.project_execute_host_dic = self.parse_project_proportion_file(config.project_execute_host_file)
-        self.project_user_dic = self.parse_project_proportion_file(config.project_user_file)
+        self.default_project_cost_dic['others'] = 0
+
+        self.project_execute_host_dic = common.parse_project_proportion_file(project_execute_host_file)
+        self.project_user_dic = common.parse_project_proportion_file(project_user_file)
+
         self.project_proportion_dic = {'execute_host': self.project_execute_host_dic, 'user': self.project_user_dic}
 
         self.palladium_cost_dic = {}
@@ -84,15 +93,14 @@ class Sampling:
             try:
                 os.system('mkdir -p ' + str(self.current_db_path))
             except Exception as error:
-                logging.error('*Error*: Failed on creating database directory "' + str(self.current_db_path) + '".')
-                logging.error('         ' + str(error))
+                logger.error('Failed on creating database directory "' + str(self.current_db_path) + '". \n' + str(error))
                 sys.exit(1)
 
     def sampling(self):
         """
         Sample palladium usage information.
         """
-        logging.critical('>>> Sampling palladium usage information ...')
+        logger.critical('>>> Sampling palladium usage information ...')
 
         # Get palladium_dic.
         test_server_info = common_palladium.get_test_server_info(self.hardware)
@@ -100,11 +108,11 @@ class Sampling:
 
         if self.palladium_dic:
             # Print debug information.
-            logging.debug('    Sample Time : ' + str(self.current_year) + str(self.current_month) + str(self.current_day) + '_' + str(self.current_time))
-            logging.debug('    Hardware : ' + self.palladium_dic['hardware'])
-            logging.debug('    Emulator : ' + self.palladium_dic['emulator'])
-            logging.debug('    Status : ' + self.palladium_dic['emulator_status'])
-            logging.debug('    Utilization : ' + str(self.palladium_dic['utilization']))
+            logger.debug('    Sample Time : ' + str(self.current_year) + str(self.current_month) + str(self.current_day) + '_' + str(self.current_time))
+            logger.debug('    Hardware : ' + self.palladium_dic['hardware'])
+            logger.debug('    Emulator : ' + self.palladium_dic['emulator'])
+            logger.debug('    Status : ' + self.palladium_dic['emulator_status'])
+            logger.debug('    Utilization : ' + str(self.palladium_dic['utilization']))
 
             # Create datebase path.
             emulator = self.palladium_dic['emulator']
@@ -130,118 +138,6 @@ class Sampling:
             # Update palladium cost file.
             self.update_cost_file(emulator)
 
-    def parse_project_list_file(self):
-        """
-        Parse project_list_file and return List "project_list".
-        """
-        project_list = []
-
-        if config.project_list_file and os.path.exists(config.project_list_file):
-            with open(config.project_list_file, 'r') as PLF:
-                for line in PLF.readlines():
-                    line = line.strip()
-
-                    if re.match(r'^\s*#.*$', line) or re.match(r'^\s*$', line):
-                        continue
-                    else:
-                        if line not in project_list:
-                            project_list.append(line)
-
-        return project_list
-
-    def parse_project_proportion_file(self, project_proportion_file):
-        """
-        Parse config.project_*_file and return dictory "project_proportion_dic".
-        """
-        project_proportion_dic = {}
-
-        if project_proportion_file and os.path.exists(project_proportion_file):
-            with open(project_proportion_file, 'r') as PPF:
-                for line in PPF.readlines():
-                    line = line.strip()
-
-                    if re.match(r'^\s*#.*$', line) or re.match(r'^\s*$', line):
-                        continue
-                    elif re.match(r'^(\S+)\s*:\s*(\S+)$', line):
-                        my_match = re.match(r'^(\S+)\s*:\s*(\S+)$', line)
-                        item = my_match.group(1)
-                        project = my_match.group(2)
-
-                        if item in project_proportion_dic.keys():
-                            logging.warning('*Warning*: "' + str(item) + '": repeated item on "' + str(project_proportion_file) + '", ignore.')
-                            continue
-                        else:
-                            project_proportion_dic[item] = {project: 1}
-                    elif re.match(r'^(\S+)\s*:\s*(.+)$', line):
-                        my_match = re.match(r'^(\S+)\s*:\s*(.+)$', line)
-                        item = my_match.group(1)
-                        project_string = my_match.group(2)
-                        tmp_dic = {}
-
-                        for project_setting in project_string.split():
-                            if re.match(r'^(\S+)\((0.\d+)\)$', project_setting):
-                                my_match = re.match(r'^(\S+)\((0.\d+)\)$', project_setting)
-                                project = my_match.group(1)
-                                project_proportion = my_match.group(2)
-
-                                if project in tmp_dic.keys():
-                                    tmp_dic = {}
-                                    break
-                                else:
-                                    tmp_dic[project] = float(project_proportion)
-                            else:
-                                tmp_dic = {}
-                                break
-
-                        if not tmp_dic:
-                            logging.warning('*Warning*: invalid line on "' + str(project_proportion_file) + '", ignore.')
-                            logging.warning('           ' + str(line))
-                            continue
-                        else:
-                            sum_proportion = sum(list(tmp_dic.values()))
-
-                            if sum_proportion == 1.0:
-                                project_proportion_dic[item] = tmp_dic
-                            else:
-                                logging.warning('*Warning*: invalid line on "' + str(project_proportion_file) + '", ignore.')
-                                logging.warning('           ' + str(line))
-                                continue
-                    else:
-                        logging.warning('*Warning*: invalid line on "' + str(project_proportion_file) + '", ignore.')
-                        logging.warning('           ' + str(line))
-                        continue
-
-        return project_proportion_dic
-
-    def get_project_info(self, execute_host, user):
-        """
-        Get project information based on submit_host/execute_host/user.
-        """
-        project_dic = {}
-        factor_dic = {'execute_host': execute_host, 'user': user}
-
-        if config.project_primary_factors:
-            project_primary_factor_list = config.project_primary_factors.split()
-
-            for project_primary_factor in project_primary_factor_list:
-                if project_primary_factor not in factor_dic.keys():
-                    logging.error('*Error*: "' + str(project_primary_factor) + '": invalid project_primary_factors setting on config file.')
-                    sys.exit(1)
-                else:
-                    factor_value = factor_dic[project_primary_factor]
-                    project_proportion_dic = {}
-
-                    if factor_value in self.project_proportion_dic[project_primary_factor].keys():
-                        project_proportion_dic = self.project_proportion_dic[project_primary_factor][factor_value]
-
-                    if project_proportion_dic:
-                        project_dic = project_proportion_dic
-                        break
-                    else:
-                        continue
-
-        return project_dic
-
     def get_cost_info(self):
         """
         Get emulator sampling record project infomation, generate self.palladium_cost_dic.
@@ -254,6 +150,15 @@ class Sampling:
         self.palladium_cost_dic[self.hardware].setdefault(emulator, {})
 
         self.palladium_cost_dic[self.hardware][emulator] = {project: 0 for project in self.project_list}
+
+        self.project_primary_factors = ''
+
+        if self.hardware == 'Z1':
+            if hasattr(config, 'Z1_project_primary_factors'):
+                self.project_primary_factors = config.Z1_project_primary_factors
+        elif self.hardware == 'Z2':
+            if hasattr(config, 'Z2_project_primary_factors'):
+                self.project_primary_factors = config.Z1_project_primary_factors
 
         for rack in self.palladium_dic['rack'].keys():
             for cluster in self.palladium_dic['rack'][rack]['cluster'].keys():
@@ -268,7 +173,7 @@ class Sampling:
                         exec_host = pid.split(':')[0]
 
                         if exec_host:
-                            project_dic = self.get_project_info(execute_host=exec_host, user=owner)
+                            project_dic = common.get_project_info(self.project_primary_factors, self.project_proportion_dic, execute_host=exec_host, user=owner)
 
                             if project_dic:
                                 for project in project_dic.keys():
@@ -279,6 +184,8 @@ class Sampling:
 
                                     if project not in self.project_list:
                                         self.project_list.append(project)
+                            else:
+                                self.palladium_cost_dic[self.hardware][emulator]['others'] += 1
 
     def update_cost_file(self, emulator):
         """
@@ -288,7 +195,7 @@ class Sampling:
         current_project_dic = self.palladium_cost_dic[self.hardware][emulator]
         total_cost_dic = {}
 
-        logging.critical('>>> Updating palladium cost file ...')
+        logger.critical('>>> Updating palladium cost file ...')
 
         # Parsing cost file and get cost dic
         if not os.path.exists(cost_file):
@@ -306,7 +213,7 @@ class Sampling:
                         date = line_s[0].strip()
                         history_project_cost_dic = {cost_info.split(':')[0].strip(): int(cost_info.split(':')[1].strip()) for cost_info in line_s[1:]}
                     else:
-                        logging.warning('*Warning*: Could not find valid infomation in cost file line: ' + line + '!')
+                        logger.warning('Could not find valid infomation in cost file line: ' + line + '!')
                         continue
 
                     total_cost_dic[date] = history_project_cost_dic
@@ -336,7 +243,7 @@ class Sampling:
                 for project in total_cost_dic[date]:
                     line += '{:<15}'.format(r'%s:%s' % (project, str(total_cost_dic[date][project])))
 
-                logging.debug('    ' + line)
+                logger.debug('    ' + line)
                 CF.write(line + '\n')
 
 

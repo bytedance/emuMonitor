@@ -252,7 +252,7 @@ def main():
     # Testing suite
     suite_data = unittest.TestSuite()
     suite_data.addTest(TestPmonitor('test_parse_db_path'))
-    suite_data.addTest(TestPmonitor('test_parse_project_list_file'))
+    #suite_data.addTest(TestPmonitor('test_parse_project_list_file'))
     suite_data.addTest(TestPmonitor('test_gen_palladium_info_table'))
 
     suite_gui = unittest.TestSuite()

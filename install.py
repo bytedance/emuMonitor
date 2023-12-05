@@ -106,17 +106,18 @@ Z1_test_server_host = ""
 # Specify test_server execute hosts for Palladium Z2, make sure you can ssh the host without password.
 Z2_test_server_host = ""
 
-# Specify project list file.
-project_list_file = "''' + str(CWD) + '''/config/project_list"
-
-# Specify project & execute_host relationship file.
-project_execute_host_file = "''' + str(CWD) + '''/config/project_execute_host"
-
-# Specify project & user relationship file.
-project_user_file = "''' + str(CWD) + '''/config/project_user"
-
 # Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
-project_primary_factors = "user  execute_host"
+Z1_project_primary_factors = "user  execute_host"
+
+Z2_project_primary_factors = "user  execute_host"
+
+# Enable "others" project on COST tab, so cost can always be shared.
+palladium_enable_cost_others_project = True
+
+# Use default cost rate for no-use emu
+palladium_enable_use_default_cost_rate = True
+
+
 
 
 ######## For Zebu ########
@@ -131,6 +132,16 @@ check_status_command = zRscManager + \" -nc -sysstat \" + ZEBU_SYSTEM_DIR + \" -
 
 # Specify check report command.
 check_report_command = zRscManager + \" -nc -sysreport \" + ZEBU_SYSTEM_DIR + \" -from FROMDATE -to TODATE -noheader -fields 'opendate, closedate, modulesList, user, pid, pc' -nofilter ; rm ZEBU_GLOBAL_SYSTEM_DIR_global_mngt.db\"
+
+# Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
+zebu_project_primary_factors = "user  execute_host"
+
+# Enable "others" project on COST tab, so cost can always be shared.
+zebu_enable_cost_others_project = True
+
+# Use default cost rate for no-use emu
+zebu_enable_use_default_cost_rate = True
+
 ''')
 
             os.chmod(config_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
@@ -188,6 +199,96 @@ test_palladium_db = "''' + str(test_path) + '''/test_data/test_palladium_db_file
             sys.exit(1)
 
 
+def gen_cost_config_file():
+    print('')
+
+    zebu_project_list_file = str(CWD) + '/config/zebu/project_list'
+    zebu_execute_host_file = str(CWD) + '/config/zebu/project_execute_host'
+    zebu_user_file = str(CWD) + '/config/zebu/project_user'
+
+    Z1_project_list_file = str(CWD) + '/config/palladium/Z1/project_list'
+    Z1_execute_host_file = str(CWD) + '/config/palladium/Z1/project_execute_host'
+    Z1_user_file = str(CWD) + '/config/palladium/Z1/project_user'
+
+    Z2_project_list_file = str(CWD) + '/config/palladium/Z2/project_list'
+    Z2_execute_host_file = str(CWD) + '/config/palladium/Z2/project_execute_host'
+    Z2_user_file = str(CWD) + '/config/palladium/Z2/project_user'
+
+    gen_project_list_file(zebu_project_list_file)
+    gen_project_list_file(Z1_project_list_file)
+    gen_project_list_file(Z2_project_list_file)
+
+    gen_project_execute_host_file(zebu_execute_host_file)
+    gen_project_execute_host_file(Z1_execute_host_file)
+    gen_project_execute_host_file(Z2_execute_host_file)
+
+    gen_project_user_file(zebu_user_file)
+    gen_project_user_file(Z1_user_file)
+    gen_project_user_file(Z2_user_file)
+
+
+def gen_project_execute_host_file(project_execute_host_file):
+    # Generate project_execute_host_file.
+    print('>>> Generate project-execute_host relationship file "' + str(project_execute_host_file) + '".\n')
+
+    if os.path.exists(project_execute_host_file):
+        print('    *Warning*: config file "' + str(project_execute_host_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(project_execute_host_file, 'w') as PEHF:
+                PEHF.write('''# Example:
+# host1 : project1(0.3) project2(0.7)
+# host2 : project3
+
+''')
+
+            os.chmod(project_execute_host_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening config file "' + str(project_execute_host_file) + '" for write: ' + str(error))
+            sys.exit(1)
+
+
+def gen_project_list_file(project_list_file):
+    # Generate project_list_file.
+    print('>>> Generate project list file "' + str(project_list_file) + '".\n')
+
+    if os.path.exists(project_list_file):
+        print('    *Warning*: config file "' + str(project_list_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(project_list_file, 'w') as PLF:
+                PLF.write('''# Example:
+# project1
+# project2
+
+''')
+
+            os.chmod(project_list_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening config file "' + str(project_list_file) + '" for write: ' + str(error))
+            sys.exit(1)
+
+
+def gen_project_user_file(project_user_file):
+    # Generate project_user_file.
+    print('>>> Generate project-user relationship file "' + str(project_user_file) + '".\n')
+
+    if os.path.exists(project_user_file):
+        print('    *Warning*: config file "' + str(project_user_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(project_user_file, 'w') as PUF:
+                PUF.write('''# Example:
+# user1 : project1(0.3) project2(0.7)
+# user2 : project3
+
+''')
+
+            os.chmod(project_user_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening config file "' + str(project_user_file) + '" for write: ' + str(error))
+            sys.exit(1)
+
 ################
 # Main Process #
 ################
@@ -196,6 +297,7 @@ def main():
     gen_shell_tools()
     gen_config_file()
     gen_test_config_file()
+    gen_cost_config_file()
 
     print('')
     print('Done, Please enjoy it.')
