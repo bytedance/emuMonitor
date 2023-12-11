@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 # Import PyQt
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QAction, qApp, QTabWidget, QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QMessageBox, QComboBox, QHeaderView, QDateEdit, QAbstractItemView, QFileDialog
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, QDate
 
 # Import matplotlib
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         # Show main window
         self.setWindowTitle('zebuMonitor')
         self.resize(1111, 620)
+        self.setWindowIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/monitor.ico'))
         common_pyqt5.center_window(self)
 
     def gen_menubar(self):
@@ -132,9 +134,25 @@ class MainWindow(QMainWindow):
 
         # File
         exit_action = QAction('Exit', self)
+        exit_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/exit.png'))
         exit_action.triggered.connect(qApp.quit)
 
+        export_current_table_action = QAction('Export current table', self)
+        export_current_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_current_table_action.triggered.connect(self.export_current_table)
+
+        export_history_table_action = QAction('Export history table', self)
+        export_history_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_history_table_action.triggered.connect(self.export_history_table)
+
+        export_cost_table_action = QAction('Export cost table', self)
+        export_cost_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_cost_table_action.triggered.connect(self.export_cost_table)
+
         file_menu = menubar.addMenu('File')
+        file_menu.addAction(export_current_table_action)
+        file_menu.addAction(export_history_table_action)
+        file_menu.addAction(export_cost_table_action)
         file_menu.addAction(exit_action)
 
         # Setup
@@ -152,9 +170,11 @@ class MainWindow(QMainWindow):
 
         # Help
         version_action = QAction('Version', self)
+        version_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/version.png'))
         version_action.triggered.connect(self.show_version)
 
         about_action = QAction('About ZebuMonitor', self)
+        about_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/about.png'))
         about_action.triggered.connect(self.show_about)
 
         help_menu = menubar.addMenu('Help')
@@ -165,7 +185,7 @@ class MainWindow(QMainWindow):
         """
         Show zebuMonitor version information.
         """
-        version = 'V1.0'
+        version = 'V1.1'
         QMessageBox.about(self, 'zebuMonitor', 'Version: ' + str(version) + '        ')
 
     def show_about(self):
@@ -336,7 +356,8 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         self.current_tab_table.setSortingEnabled(True)
         self.current_tab_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.current_tab_table.setColumnCount(8)
-        self.current_tab_table.setHorizontalHeaderLabels(['Unit', 'Module', 'Sub Module', 'Status', 'User', 'Host', 'PID', 'Suspend'])
+        self.current_tab_table_title_list = ['Unit', 'Module', 'Sub Module', 'Status', 'User', 'Host', 'PID', 'Suspend']
+        self.current_tab_table.setHorizontalHeaderLabels(self.current_tab_table_title_list)
         self.current_tab_table.setColumnWidth(0, 100)
         self.current_tab_table.setColumnWidth(1, 100)
         self.current_tab_table.setColumnWidth(2, 100)
@@ -559,7 +580,8 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         self.history_tab_table.setSortingEnabled(True)
         self.history_tab_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.history_tab_table.setColumnCount(8)
-        self.history_tab_table.setHorizontalHeaderLabels(['Unit', 'Module', 'Sub Module', 'User', 'Host', 'PID', 'Start Time', 'End Time'])
+        self.history_tab_table_title_list = ['Unit', 'Module', 'Sub Module', 'User', 'Host', 'PID', 'Start Time', 'End Time']
+        self.history_tab_table.setHorizontalHeaderLabels(self.history_tab_table_title_list)
         self.history_tab_table.setColumnWidth(0, 100)
         self.history_tab_table.setColumnWidth(1, 100)
         self.history_tab_table.setColumnWidth(2, 100)
@@ -792,7 +814,7 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         """
         # self.utilization_tab_frame1
         self.utilization_figure_canvas = FigureCanvas()
-        self.utilization_navigation_toolbar = NavigationToolbar2QT(self.utilization_figure_canvas, self)
+        self.utilization_navigation_toolbar = common_pyqt5.NavigationToolbar2QT(self.utilization_figure_canvas, self, x_is_date=True)
 
         # self.utilization_tab_frame1 - Grid
         utilization_tab_frame1_grid = QGridLayout()
@@ -839,7 +861,6 @@ zebuMonitor is an open source software for zebu information data-collection, dat
     def get_utilization_info(self, unit, module, sub_module, start_date, end_date):
         utilization_info_dic = {}
         filtered_zebu_dic = common_zebu.filter_zebu_dic(self.current_zebu_dic, specified_unit=unit, specified_module=module, specified_sub_module=sub_module)
-        module_count = int(filtered_zebu_dic['row'])
         check_report_command = re.sub('FROMDATE', start_date, config.check_report_command)
         check_report_command = re.sub('TODATE', end_date, check_report_command)
 
@@ -948,7 +969,8 @@ zebuMonitor is an open source software for zebu information data-collection, dat
         axes.set_title('Average Utilization : ' + str(av_utilization) + '%')
         axes.set_xlabel('Sample Date')
         axes.set_ylabel('Utilization (%)')
-        axes.plot(date_list, utilization_list, 'go-')
+        axes.plot(date_list, utilization_list, 'go-', label='Utilization (%)', linewidth=0.1, markersize=0.1)
+        axes.fill_between(date_list, utilization_list, color='green', alpha=0.5)
         axes.tick_params(axis='x', rotation=15)
         axes.grid()
         self.utilization_figure_canvas.draw()
@@ -1028,7 +1050,7 @@ zebuMonitor is an open source software for zebu information data-collection, dat
 
         cost_tab_export_button = QPushButton('Export', self.cost_tab_frame)
         cost_tab_export_button.setStyleSheet('''QPushButton:hover{background:rgb(170, 255, 127);}''')
-        cost_tab_export_button.clicked.connect(self.export_cost_info)
+        cost_tab_export_button.clicked.connect(self.export_cost_table)
 
         # self.cost_tab_frame0 - Grid
         cost_tab_frame_grid = QGridLayout()
@@ -1276,30 +1298,6 @@ zebuMonitor is an open source software for zebu information data-collection, dat
                                 j += 1
                                 self.cost_tab_table.setItem(i, j, item)
 
-    def export_cost_info(self):
-        """
-        Export self.cost_tab_table into an Excel.
-        """
-        (cost_info_file, file_type) = QFileDialog.getSaveFileName(self, 'Export cost info', './zebu_cost.xlsx', 'Excel (*.xlsx)')
-
-        if cost_info_file:
-            # Get self.cost_tab_label content.
-            cost_tab_table_list = []
-            cost_tab_table_list.append(self.cost_tab_table_title_list)
-
-            for row in range(self.cost_tab_table.rowCount()):
-                row_list = []
-
-                for column in range(self.cost_tab_table.columnCount()):
-                    row_list.append(self.cost_tab_table.item(row, column).text())
-
-                cost_tab_table_list.append(row_list)
-
-            # Write excel
-            logger.critical('Writing cost info file "' + str(cost_info_file) + '" ...')
-
-            common.write_excel(excel_file=cost_info_file, contents_list=cost_tab_table_list, specified_sheet_name='cost_info')
-
     def func_enable_cost_others_project(self, state):
         """
         Class no-project license usage to "others" project with self.enable_cost_others_project.
@@ -1324,6 +1322,47 @@ zebuMonitor is an open source software for zebu information data-collection, dat
             self.enable_use_default_cost_rate = False
 
         self.gen_cost_tab_table()
+
+    def export_current_table(self):
+        self.export_table('current', self.current_tab_table, self.current_tab_table_title_list)
+
+    def export_history_table(self):
+        self.export_table('history', self.history_tab_table, self.history_tab_table_title_list)
+
+    def export_cost_table(self):
+        self.export_table('cost', self.cost_tab_table, self.cost_tab_table_title_list)
+
+    def export_table(self, table_type, table_item, title_list):
+        """
+        Export specified table info into an Excel.
+        """
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time_string = re.sub('-', '', current_time)
+        current_time_string = re.sub(':', '', current_time_string)
+        current_time_string = re.sub(' ', '_', current_time_string)
+        default_output_file = './zebuMonitor_' + str(table_type) + '_' + str(current_time_string) + '.xlsx'
+        (output_file, output_file_type) = QFileDialog.getSaveFileName(self, 'Export ' + str(table_type) + ' table', default_output_file, 'Excel (*.xlsx)')
+
+        if output_file:
+            # Get table content.
+            table_info_list = []
+            table_info_list.append(title_list)
+
+            for row in range(table_item.rowCount()):
+                row_list = []
+
+                for column in range(table_item.columnCount()):
+                    if table_item.item(row, column):
+                        row_list.append(table_item.item(row, column).text())
+                    else:
+                        row_list.append('')
+
+                table_info_list.append(row_list)
+
+            # Write excel
+            print('* [' + str(current_time) + '] Writing ' + str(table_type) + ' table into "' + str(output_file) + '" ...')
+
+            common.write_excel(excel_file=output_file, contents_list=table_info_list, specified_sheet_name=table_type)
 
 
 #################

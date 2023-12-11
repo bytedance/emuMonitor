@@ -11,6 +11,7 @@ import argparse
 import logging
 
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QAction, qApp, QTabWidget, QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QMessageBox, QLineEdit, QComboBox, QHeaderView, QDateEdit, QFileDialog
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, QThread, QDate
 
 from matplotlib.backends.backend_qt5 import NavigationToolbar2QT
@@ -94,6 +95,8 @@ class MainWindow(QMainWindow):
             self.enable_use_default_cost_rate = config.palladium_enable_use_default_cost_rate
         else:
             logger.error("Could not find the definition of zebu_enable_use_default_cost_rate in config!")
+
+        self.enable_utilization_detail = False
 
         # Get project related information.
         Z1_project_list_file = str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/Z1/project_list'
@@ -196,6 +199,7 @@ class MainWindow(QMainWindow):
 
         # Show main window
         self.setWindowTitle('palladiumMonitor')
+        self.setWindowIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/monitor.ico'))
         self.resize(1111, 620)
         common_pyqt5.center_window(self)
 
@@ -207,9 +211,25 @@ class MainWindow(QMainWindow):
 
         # File
         exit_action = QAction('Exit', self)
+        exit_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/exit.png'))
         exit_action.triggered.connect(qApp.quit)
 
+        export_current_table_action = QAction('Export current table', self)
+        export_current_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_current_table_action.triggered.connect(self.export_current_table)
+
+        export_history_table_action = QAction('Export history table', self)
+        export_history_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_history_table_action.triggered.connect(self.export_history_table)
+
+        export_cost_table_action = QAction('Export cost table', self)
+        export_cost_table_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/save.png'))
+        export_cost_table_action.triggered.connect(self.export_cost_table)
+
         file_menu = menubar.addMenu('File')
+        file_menu.addAction(export_current_table_action)
+        file_menu.addAction(export_history_table_action)
+        file_menu.addAction(export_cost_table_action)
         file_menu.addAction(exit_action)
 
         # Setup
@@ -221,15 +241,22 @@ class MainWindow(QMainWindow):
         enable_cost_others_project_action.setChecked(self.enable_cost_others_project)
         enable_cost_others_project_action.triggered.connect(self.func_enable_cost_others_project)
 
+        enable_utilization_detail_action = QAction('Enable Utilization Detail', self, checkable=True)
+        enable_utilization_detail_action.setChecked(self.enable_utilization_detail)
+        enable_utilization_detail_action.triggered.connect(self.func_enable_utilization_detail)
+
         setup_menu = menubar.addMenu('Setup')
         setup_menu.addAction(enable_use_default_cost_rate_action)
         setup_menu.addAction(enable_cost_others_project_action)
+        setup_menu.addAction(enable_utilization_detail_action)
 
         # Help
         version_action = QAction('Version', self)
+        version_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/version.png'))
         version_action.triggered.connect(self.show_version)
 
         about_action = QAction('About palladiumMonitor', self)
+        about_action.setIcon(QIcon(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/data/pictures/about.png'))
         about_action.triggered.connect(self.show_about)
 
         help_menu = menubar.addMenu('Help')
@@ -240,7 +267,7 @@ class MainWindow(QMainWindow):
         """
         Show palladiumMonitor version information.
         """
-        version = 'V1.0'
+        version = 'V1.1'
         QMessageBox.about(self, 'palladiumMonitor', 'Version: ' + str(version) + '        ')
 
     def show_about(self):
@@ -523,7 +550,8 @@ palladiumMonitor is an open source software for palladium information data-colle
         palladium_info_table.setSortingEnabled(True)
         palladium_info_table.setColumnCount(0)
         palladium_info_table.setColumnCount(10)
-        palladium_info_table.setHorizontalHeaderLabels(['Rack', 'Cluster', 'Logic drawer', 'Domain', 'Owner', 'PID', 'T-Pod', 'Design', 'ElapTime', 'ReservedKey'])
+        self.palladium_record_table_title_list = ['Rack', 'Cluster', 'Logic drawer', 'Domain', 'Owner', 'PID', 'T-Pod', 'Design', 'ElapTime', 'ReservedKey']
+        palladium_info_table.setHorizontalHeaderLabels(self.palladium_record_table_title_list)
 
         palladium_info_table.setColumnWidth(0, 60)
         palladium_info_table.setColumnWidth(1, 70)
@@ -991,11 +1019,16 @@ palladiumMonitor is an open source software for palladium information data-colle
                             time = my_match.group(2)
                             utilization = my_match.group(3)
                             full_utilization_dic.setdefault(date, {})
-                            full_utilization_dic[date].setdefault(time, float(utilization))
+                            full_utilization_dic[date].setdefault(time, float(utilization) * 100)
 
-            for date in full_utilization_dic.keys():
-                utilization = int(sum(full_utilization_dic[date].values()) * 100 / len(full_utilization_dic[date]))
-                utilization_dic.setdefault(date, utilization)
+            if self.enable_utilization_detail:
+                for date in full_utilization_dic.keys():
+                    for timestamp in full_utilization_dic[date].keys():
+                        utilization_dic.setdefault(r'%s-%s' % (date, timestamp), full_utilization_dic[date][timestamp])
+            else:
+                for date in full_utilization_dic.keys():
+                    utilization = int(sum(full_utilization_dic[date].values()) / len(full_utilization_dic[date]))
+                    utilization_dic.setdefault(date, utilization)
 
         return utilization_dic
 
@@ -1005,7 +1038,7 @@ palladiumMonitor is an open source software for palladium information data-colle
         """
         # self.utilization_tab_frame1.
         self.utilization_figure_canvas = FigureCanvas()
-        self.utilization_navigation_toolbar = NavigationToolbar2QT(self.utilization_figure_canvas, self)
+        self.utilization_navigation_toolbar = common_pyqt5.NavigationToolbar2QT(self.utilization_figure_canvas, self, x_is_date=True)
 
         # self.utilization_tab_frame1 - Grid
         utilization_tab_frame1_grid = QGridLayout()
@@ -1037,7 +1070,10 @@ palladiumMonitor is an open source software for palladium information data-colle
                 self.utilization_figure_canvas.draw()
 
                 for i in range(len(date_list)):
-                    date_list[i] = datetime.datetime.strptime(date_list[i], '%Y%m%d')
+                    if self.enable_utilization_detail:
+                        date_list[i] = datetime.datetime.strptime(date_list[i], '%Y%m%d-%H%M%S')
+                    else:
+                        date_list[i] = datetime.datetime.strptime(date_list[i], '%Y%m%d')
 
                 av_utilization = int(sum(utilization_list) / len(utilization_list))
 
@@ -1052,7 +1088,8 @@ palladiumMonitor is an open source software for palladium information data-colle
         axes.set_title('Average Utilization : ' + str(av_utilization) + '%')
         axes.set_xlabel('Sample Date')
         axes.set_ylabel('Utilization (%)')
-        axes.plot(date_list, utilization_list, 'go-')
+        axes.plot(date_list, utilization_list, 'go-', label='Utilization (%)', linewidth=0.1, markersize=0.1)
+        axes.fill_between(date_list, utilization_list, color='green', alpha=0.5)
         axes.legend(loc='upper right')
         axes.tick_params(axis='x', rotation=15)
         axes.grid()
@@ -1127,7 +1164,7 @@ palladiumMonitor is an open source software for palladium information data-colle
 
         cost_tab_export_button = QPushButton('Export', self.cost_tab_frame0)
         cost_tab_export_button.setStyleSheet('''QPushButton:hover{background:rgb(170, 255, 127);}''')
-        cost_tab_export_button.clicked.connect(self.export_cost_info)
+        cost_tab_export_button.clicked.connect(self.export_cost_table)
 
         # self.utilization_tab_frame0 - Grid
         cost_tab_frame0_grid = QGridLayout()
@@ -1364,30 +1401,6 @@ palladiumMonitor is an open source software for palladium information data-colle
 
         self.gen_cost_tab_table()
 
-    def export_cost_info(self):
-        """
-        Export self.cost_tab_table into an Excel.
-        """
-        (cost_info_file, file_type) = QFileDialog.getSaveFileName(self, 'Export cost info', './palladium_cost.xlsx', 'Excel (*.xlsx)')
-
-        if cost_info_file:
-            # Get self.cost_tab_label content.
-            cost_tab_table_list = []
-            cost_tab_table_list.append(self.cost_tab_table_title_list)
-
-            for row in range(self.cost_tab_table.rowCount()):
-                row_list = []
-
-                for column in range(self.cost_tab_table.columnCount()):
-                    row_list.append(self.cost_tab_table.item(row, column).text())
-
-                cost_tab_table_list.append(row_list)
-
-            # Write excel
-            logger.critical('Writing cost info file "' + str(cost_info_file) + '" ...')
-
-            common.write_excel(excel_file=cost_info_file, contents_list=cost_tab_table_list, specified_sheet_name='cost_info')
-
     def func_enable_cost_others_project(self, state):
         """
         Class no-project license usage to "others" project with self.enable_cost_others_project.
@@ -1418,6 +1431,14 @@ palladiumMonitor is an open source software for palladium information data-colle
 
         self.gen_cost_tab_table()
 
+    def func_enable_utilization_detail(self, state):
+        if state:
+            self.enable_utilization_detail = True
+            self.utilization_tab_start_date_edit.setDate(QDate.currentDate().addDays(-7))
+        else:
+            self.enable_utilization_detail = False
+            self.utilization_tab_start_date_edit.setDate(QDate.currentDate().addMonths(-1))
+
     def func_enable_use_default_cost_rate(self, state):
         if state:
             self.enable_use_default_cost_rate = True
@@ -1426,6 +1447,47 @@ palladiumMonitor is an open source software for palladium information data-colle
 
         self.gen_cost_tab_table()
 # For cost TAB (end) #
+
+    def export_current_table(self):
+        self.export_table('current', self.current_tab_table, self.palladium_record_table_title_list)
+
+    def export_history_table(self):
+        self.export_table('history', self.history_tab_table, self.palladium_record_table_title_list)
+
+    def export_cost_table(self):
+        self.export_table('cost', self.cost_tab_table, self.cost_tab_table_title_list)
+
+    def export_table(self, table_type, table_item, title_list):
+        """
+        Export specified table info into an Excel.
+        """
+        current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time_string = re.sub('-', '', current_time)
+        current_time_string = re.sub(':', '', current_time_string)
+        current_time_string = re.sub(' ', '_', current_time_string)
+        default_output_file = './palladiumMonitor_' + str(table_type) + '_' + str(current_time_string) + '.xlsx'
+        (output_file, output_file_type) = QFileDialog.getSaveFileName(self, 'Export ' + str(table_type) + ' table', default_output_file, 'Excel (*.xlsx)')
+
+        if output_file:
+            # Get table content.
+            table_info_list = []
+            table_info_list.append(title_list)
+
+            for row in range(table_item.rowCount()):
+                row_list = []
+
+                for column in range(table_item.columnCount()):
+                    if table_item.item(row, column):
+                        row_list.append(table_item.item(row, column).text())
+                    else:
+                        row_list.append('')
+
+                table_info_list.append(row_list)
+
+            # Write excel
+            print('* [' + str(current_time) + '] Writing ' + str(table_type) + ' table into "' + str(output_file) + '" ...')
+
+            common.write_excel(excel_file=output_file, contents_list=table_info_list, specified_sheet_name=table_type)
 
     def close_event(self, QCloseEvent):
         """

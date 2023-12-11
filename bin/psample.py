@@ -41,7 +41,11 @@ def read_args():
     parser.add_argument('-d', '--debug',
                         action='store_true',
                         default=False,
-                        help='Enable deabut mode.')
+                        help='Enable debug mode.')
+    parser.add_argument('-re', '--reconfig',
+                        action='store_true',
+                        default=False,
+                        help='reconfig cost and modify all cost infomation')
 
     args = parser.parse_args()
 
@@ -50,7 +54,7 @@ def read_args():
     else:
         logger = common.get_logger(level=logging.WARNING)
 
-    return (args.hardware)
+    return args
 
 
 class Sampling:
@@ -167,7 +171,7 @@ class Sampling:
                         owner = palladium_record['owner']
                         pid = palladium_record['pid']
 
-                        if pid == 0:
+                        if pid == 0 or pid == '0':
                             continue
 
                         exec_host = pid.split(':')[0]
@@ -246,14 +250,55 @@ class Sampling:
                 logger.debug('    ' + line)
                 CF.write(line + '\n')
 
+    def reconfig_cost_file(self):
+        logger.info('Generate new cost infomation ...')
+
+        if not os.path.exists(config.db_path):
+            logger.error('Could not find db path: %s' % str(config.db_path))
+
+        for dir_path, dir_name_list, file_name_list in os.walk(config.db_path):
+            for file_name in file_name_list:
+                if re.match(r'^cost$', file_name):
+                    file_path = os.path.join(dir_path, file_name)
+                    os.rename(os.path.join(dir_path, file_name), r'%s.%s' % (file_path, datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
+
+                if re.match(r'^\d+$', file_name):
+                    file_path = os.path.join(dir_path, file_name)
+                    self.palladium_dic = {}
+
+                    with open(file_path, 'r') as ff:
+                        self.palladium_dic = yaml.load(ff, Loader=yaml.FullLoader)
+
+                    dir_item_list = dir_path.split('/')
+
+                    if self.palladium_dic['hardware'].find('Z1') != -1:
+                        self.hardware = 'Z1'
+                    elif self.palladium_dic['hardware'].find('Z2') != -1:
+                        self.hardware = 'Z2'
+                    else:
+                        continue
+
+                    emulator = self.palladium_dic['emulator']
+                    self.current_date = r'%s-%s-%s' % (dir_item_list[-3], dir_item_list[-2], dir_item_list[-1])
+
+                    # get self.palladium_cost_dic.
+                    self.get_cost_info()
+
+                    # Update palladium cost file.
+                    self.update_cost_file(emulator)
+
 
 #################
 # Main Function #
 #################
 def main():
-    (hardware) = read_args()
-    my_sampling = Sampling(hardware)
-    my_sampling.sampling()
+    args = read_args()
+    my_sampling = Sampling(args.hardware)
+
+    if not args.reconfig:
+        my_sampling.sampling()
+    else:
+        my_sampling.reconfig_cost_file()
 
 
 if __name__ == '__main__':
