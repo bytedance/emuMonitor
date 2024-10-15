@@ -8,24 +8,13 @@ import argparse
 import datetime
 import logging
 
-sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/common')
-import common_palladium
-import common
-
-# Import local config file if exists.
-LOCAL_CONFIG_DIR = str(os.environ['HOME']) + '/.palladiumMonitor/config'
-LOCAL_CONFIG = str(LOCAL_CONFIG_DIR) + '/config.py'
-
-if os.path.exists(LOCAL_CONFIG):
-    sys.path.append(LOCAL_CONFIG_DIR)
-    import config
-else:
-    sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config')
-    import config
+sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']))
+from common import common, common_palladium
+from config import config
 
 
 os.environ["PYTHONUNBUFFERED"] = '1'
-logger = common.get_logger(level=logging.WARNING)
+logger = common.get_logger(level=logging.DEBUG)
 
 
 def read_args():
@@ -35,24 +24,18 @@ def read_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-H', '--hardware',
-                        choices=['Z1', 'Z2'],
                         default='Z1',
-                        help='Specify hardware, it could be "Z1" or "Z2", default is "Z1".')
-    parser.add_argument('-d', '--debug',
+                        help='Specify hardware, default is "Z1".')
+    parser.add_argument('--reconfig',
                         action='store_true',
                         default=False,
-                        help='Enable debug mode.')
-    parser.add_argument('-re', '--reconfig',
+                        help='reconfig cost and modify all cost information')
+    parser.add_argument('--detail',
                         action='store_true',
                         default=False,
-                        help='reconfig cost and modify all cost infomation')
+                        help='regenerate history utilization & cost information totally.')
 
     args = parser.parse_args()
-
-    if args.debug:
-        logger = common.get_logger(level=logging.DEBUG)
-    else:
-        logger = common.get_logger(level=logging.WARNING)
 
     return args
 
@@ -64,6 +47,7 @@ class Sampling:
     """
     def __init__(self, hardware):
         self.hardware = hardware
+        self.hardware_dic = common_palladium.get_palladium_host_info()
 
         self.current_year = datetime.datetime.now().strftime('%Y')
         self.current_month = datetime.datetime.now().strftime('%m')
@@ -105,9 +89,11 @@ class Sampling:
         Sample palladium usage information.
         """
         logger.critical('>>> Sampling palladium usage information ...')
+        test_server = self.hardware_dic[self.hardware]['test_server']
+        host = self.hardware_dic[self.hardware]['test_server_host']
 
         # Get palladium_dic.
-        test_server_info = common_palladium.get_test_server_info(self.hardware)
+        test_server_info = common_palladium.get_test_server_info(self.hardware, test_server, host)
         self.palladium_dic = common_palladium.parse_test_server_info(test_server_info)
 
         if self.palladium_dic:
@@ -122,6 +108,32 @@ class Sampling:
             emulator = self.palladium_dic['emulator']
             self.current_db_path = str(config.db_path) + '/' + str(self.hardware) + '/' + str(emulator) + '/' + str(self.current_year) + '/' + str(self.current_month) + '/' + str(self.current_day)
             self.create_db_path()
+
+            domain_list_file = str(config.db_path) + '/' + str(self.hardware) + '/domain_list.yaml'
+
+            domain_dic = {'rack_list': [],
+                          'cluster_list': [],
+                          'logic_drawer_list': [],
+                          'domain_list': []}
+
+            for rack in self.palladium_dic['rack']:
+                domain_dic.setdefault(rack, {})
+                domain_dic['rack_list'].append(rack)
+
+                for cluster in self.palladium_dic['rack'][rack]['cluster']:
+                    domain_dic[rack].setdefault(cluster, {})
+                    domain_dic['cluster_list'].append(cluster)
+
+                    for logic_drawer in self.palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer']:
+                        domain_dic[rack][cluster].setdefault(logic_drawer, [])
+                        domain_dic['logic_drawer_list'].append(logic_drawer)
+
+                        for domain in self.palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain']:
+                            domain_dic[rack][cluster][logic_drawer].append(domain)
+                            domain_dic['domain_list'].append(domain)
+
+            with open(domain_list_file, 'w') as df:
+                df.write(yaml.dump(domain_dic, allow_unicode=True))
 
             # Save palladium_dic.
             palladium_info_file = str(self.current_db_path) + '/' + str(self.current_time)
@@ -142,6 +154,9 @@ class Sampling:
             # Update palladium cost file.
             self.update_cost_file(emulator)
 
+            # get detail palladium utilization info
+            self.get_palladium_domain_info()
+
     def get_cost_info(self):
         """
         Get emulator sampling record project infomation, generate self.palladium_cost_dic.
@@ -157,12 +172,7 @@ class Sampling:
 
         self.project_primary_factors = ''
 
-        if self.hardware == 'Z1':
-            if hasattr(config, 'Z1_project_primary_factors'):
-                self.project_primary_factors = config.Z1_project_primary_factors
-        elif self.hardware == 'Z2':
-            if hasattr(config, 'Z2_project_primary_factors'):
-                self.project_primary_factors = config.Z1_project_primary_factors
+        self.project_primary_factors = self.hardware_dic[self.hardware]['project_primary_factors']
 
         for rack in self.palladium_dic['rack'].keys():
             for cluster in self.palladium_dic['rack'][rack]['cluster'].keys():
@@ -271,12 +281,9 @@ class Sampling:
 
                     dir_item_list = dir_path.split('/')
 
-                    if self.palladium_dic['hardware'].find('Z1') != -1:
-                        self.hardware = 'Z1'
-                    elif self.palladium_dic['hardware'].find('Z2') != -1:
-                        self.hardware = 'Z2'
-                    else:
-                        continue
+                    for hardware in self.hardware_dic:
+                        if hardware in dir_item_list:
+                            self.hardware = hardware
 
                     emulator = self.palladium_dic['emulator']
                     self.current_date = r'%s-%s-%s' % (dir_item_list[-3], dir_item_list[-2], dir_item_list[-1])
@@ -287,6 +294,117 @@ class Sampling:
                     # Update palladium cost file.
                     self.update_cost_file(emulator)
 
+    def get_palladium_domain_info(self):
+        """
+        get palladium detail info based on domain
+        """
+        emulator = self.palladium_dic['emulator']
+
+        detail_info_dir = str(config.db_path) + '/' + str(self.hardware) + '/' + str(emulator) + '/detail/'
+
+        if not os.path.exists(detail_info_dir):
+            os.makedirs(detail_info_dir)
+
+        utilization_detail_file = os.path.join(detail_info_dir, '%s.%s.utilization' % (str(self.current_year), str(self.current_month)))
+        cost_detail_file = os.path.join(detail_info_dir, '%s.%s.cost' % (str(self.current_year), str(self.current_month)))
+        lock_file = os.path.join(detail_info_dir, '.lock')
+
+        if os.path.exists(lock_file):
+            return
+        else:
+            with open(lock_file, 'w') as lf:
+                lf.write(str(datetime.datetime.now().timestamp()))
+
+        if not os.path.exists(utilization_detail_file):
+            utilization_detail_file_dic = {}
+        else:
+            with open(utilization_detail_file, 'r') as uf:
+                utilization_detail_file_dic = yaml.load(uf, Loader=yaml.FullLoader)
+
+        if not os.path.exists(cost_detail_file):
+            cost_detail_file_dic = {}
+        else:
+            with open(cost_detail_file, 'r') as cf:
+                cost_detail_file_dic = yaml.load(cf, Loader=yaml.FullLoader)
+
+        utilization_detail_file_dic.setdefault(self.current_date, {})
+        cost_detail_file_dic.setdefault(self.current_date, {})
+
+        for rack in self.palladium_dic['rack'].keys():
+            utilization_detail_file_dic[self.current_date].setdefault(rack, {})
+            cost_detail_file_dic[self.current_date].setdefault(rack, {})
+
+            for cluster in self.palladium_dic['rack'][rack]['cluster'].keys():
+                utilization_detail_file_dic[self.current_date][rack].setdefault(cluster, {})
+                cost_detail_file_dic[self.current_date][rack].setdefault(cluster, {})
+
+                for logic_drawer in self.palladium_dic['rack'][rack]['cluster'][cluster]["logic_drawer"].keys():
+                    utilization_detail_file_dic[self.current_date][rack][cluster].setdefault(logic_drawer, {})
+                    cost_detail_file_dic[self.current_date][rack][cluster].setdefault(logic_drawer, {})
+
+                    for domain, palladium_record in self.palladium_dic['rack'][rack]['cluster'][cluster]["logic_drawer"][logic_drawer]['domain'].items():
+                        owner = palladium_record['owner']
+                        pid = palladium_record['pid']
+                        utilization_detail_file_dic[self.current_date][rack][cluster][logic_drawer].setdefault(domain, {'sampling': 0, 'used': 0})
+                        utilization_detail_file_dic[self.current_date][rack][cluster][logic_drawer][domain]['sampling'] += 1
+                        cost_detail_file_dic[self.current_date][rack][cluster][logic_drawer].setdefault(domain, {})
+
+                        if pid == 0 or pid == '0':
+                            continue
+
+                        utilization_detail_file_dic[self.current_date][rack][cluster][logic_drawer][domain]['used'] += 1
+
+                        exec_host = pid.split(':')[0]
+
+                        if exec_host:
+                            project_dic = common.get_project_info(self.project_primary_factors, self.project_proportion_dic, execute_host=exec_host, user=owner)
+
+                            for project in project_dic:
+                                if project in cost_detail_file_dic[self.current_date][rack][cluster][logic_drawer][domain]:
+                                    cost_detail_file_dic[self.current_date][rack][cluster][logic_drawer][domain][project] += project_dic[project]
+                                else:
+                                    cost_detail_file_dic[self.current_date][rack][cluster][logic_drawer][domain][project] = project_dic[project]
+
+        with open(utilization_detail_file, 'w') as uf:
+            uf.write(yaml.dump(utilization_detail_file_dic, allow_unicode=True))
+
+        with open(cost_detail_file, 'w') as cf:
+            cf.write(yaml.dump(cost_detail_file_dic, allow_unicode=True))
+
+        os.remove(lock_file)
+
+    def get_history_palladium_detail_info(self):
+        logger.info('Generate history utilization & cost information ...')
+
+        if not os.path.exists(config.db_path):
+            logger.error('Could not find db path: %s' % str(config.db_path))
+
+        for dir_path, dir_name_list, file_name_list in os.walk(config.db_path):
+            for file_name in file_name_list:
+                if re.match(r'^\d+$', file_name):
+                    file_path = os.path.join(dir_path, file_name)
+
+                    logger.info("Reading file: %s..." % str(file_path))
+
+                    self.palladium_dic = {}
+                    self.project_primary_factors = ''
+
+                    with open(file_path, 'r') as ff:
+                        self.palladium_dic = yaml.load(ff, Loader=yaml.FullLoader)
+
+                    dir_item_list = dir_path.split('/')
+
+                    for hardware in self.hardware_dic:
+                        if hardware in dir_item_list:
+                            self.hardware = hardware
+                            self.project_primary_factors = self.hardware_dic[hardware]['project_primary_fractors']
+
+                    self.current_date = r'%s-%s-%s' % (dir_item_list[-3], dir_item_list[-2], dir_item_list[-1])
+                    self.current_year = dir_item_list[-3]
+                    self.current_month = dir_item_list[-2]
+
+                    self.get_palladium_domain_info()
+
 
 #################
 # Main Function #
@@ -295,10 +413,12 @@ def main():
     args = read_args()
     my_sampling = Sampling(args.hardware)
 
-    if not args.reconfig:
+    if not args.reconfig and not args.detail:
         my_sampling.sampling()
-    else:
+    elif args.reconfig:
         my_sampling.reconfig_cost_file()
+    elif args.detail:
+        my_sampling.get_history_palladium_detail_info()
 
 
 if __name__ == '__main__':
