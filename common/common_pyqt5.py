@@ -1,11 +1,14 @@
-import datetime
 import re
+import os
+import datetime
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5 import NavigationToolbar2QT
 from matplotlib.dates import num2date
-from PyQt5.QtWidgets import QDesktopWidget, QComboBox, QLineEdit, QListWidget, QCheckBox, QListWidgetItem
-from PyQt5.QtGui import QTextCursor
+from PyQt5.QtWidgets import QDesktopWidget, QComboBox, QLineEdit, QListWidget, QCheckBox, QListWidgetItem, QMessageBox, QCompleter
+from PyQt5.QtGui import QTextCursor, QFont
+from PyQt5.QtCore import QThread, Qt, QEvent, QObject
+from PyQt5.Qt import QFontMetrics
 
 
 def center_window(window):
@@ -33,12 +36,72 @@ def text_edit_visible_position(text_edit_item, position='End'):
     text_edit_item.ensureCursorVisible()
 
 
+def get_completer(item_list):
+    """
+    Instantiate and config QCompleter.
+    """
+    completer_ins = QCompleter(item_list)
+
+    # Enable Qt.MatchContains mode (just like re.search()), not Qt.MatchStartsWith or Qt.MatchEndsWith.
+    completer_ins.setFilterMode(Qt.MatchContains)
+    # Match upper/lower case.
+    completer_ins.setCaseSensitivity(Qt.CaseInsensitive)
+
+    # Adjust the appropriate size of the item.
+    if item_list:
+        list_view = completer_ins.popup()
+        max_length = max(len(item) for item in item_list)
+        popup_width = list_view.fontMetrics().width('w' * max_length)
+        list_view.setFixedWidth(popup_width)
+
+    return completer_ins
+
+
+class MyCheckBox(QCheckBox):
+    """
+    Re-Write eventFilter function for QCheckBox.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        """
+        Make sure clicking on the blank section still takes effect.
+        """
+        if (watched == self) and (event.type() == QEvent.MouseButtonPress):
+            if self.rect().contains(event.pos()):
+                self.toggle()
+                return True
+
+        return super().eventFilter(watched, event)
+
+
+class ComboBoxEventFilter(QObject):
+    def __init__(self, comboBox, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.comboBox = comboBox
+        self.droppedDown = False
+
+    def eventFilter(self, obj, event):
+        # MouseButtonPress
+        if event.type() == 3:
+            self.droppedDown = True
+        # MouseLeave
+        elif event.type() == 11:
+            self.droppedDown = False
+
+        return super().eventFilter(obj, event)
+
+
 class QComboCheckBox(QComboBox):
     """
     QComboCheckBox is a QComboBox with checkbox.
     """
     def __init__(self, parent):
         super(QComboCheckBox, self).__init__(parent)
+
+        self.separator = ' '
 
         # self.qLineWidget is used to load QCheckBox items.
         self.qListWidget = QListWidget()
@@ -47,21 +110,33 @@ class QComboCheckBox(QComboBox):
 
         # self.qLineEdit is used to show selected items on QLineEdit.
         self.qLineEdit = QLineEdit()
+        self.qLineEdit.textChanged.connect(self.validQLineEditValue)
         self.qLineEdit.setReadOnly(True)
         self.setLineEdit(self.qLineEdit)
 
         # self.checkBoxList is used to save QCheckBox items.
         self.checkBoxList = []
 
-    def addCheckBoxItem(self, text):
+        # Adjust width for new item.
+        self.dropDownBoxWidthPixel = self.width()
+
+        self.eventFilter = ComboBoxEventFilter(self)
+        self.view().viewport().installEventFilter(self.eventFilter)
+
+    def hidePopup(self):
+        if self.eventFilter.droppedDown:
+            return
+        else:
+            return super().hidePopup()
+
+    def validQLineEditValue(self):
         """
-        Add QCheckBox format item into QListWidget(QComboCheckBox).
+        Make sure value of self.qLineEdit always match selected items.
         """
-        qItem = QListWidgetItem(self.qListWidget)
-        qBox = QCheckBox(text)
-        qBox.stateChanged.connect(self.updateLineEdit)
-        self.checkBoxList.append(qBox)
-        self.qListWidget.setItemWidget(qItem, qBox)
+        selectedItemString = self.separator.join(self.selectedItems().values())
+
+        if self.qLineEdit.text() != selectedItemString:
+            self.updateLineEdit()
 
     def addCheckBoxItems(self, text_list):
         """
@@ -70,15 +145,60 @@ class QComboCheckBox(QComboBox):
         for text in text_list:
             self.addCheckBoxItem(text)
 
+    def addCheckBoxItem(self, text):
+        """
+        Add QCheckBox format item into QListWidget(QComboCheckBox).
+        """
+        qItem = QListWidgetItem(self.qListWidget)
+        qBox = MyCheckBox(text)
+        qBox.stateChanged.connect(self.qBoxStateChanged)
+        self.checkBoxList.append(qBox)
+        self.qListWidget.setItemWidget(qItem, qBox)
+        self.updateDropDownBoxWidth(text, qBox)
+
     def updateLineEdit(self):
         """
         Update QComboCheckBox show message with self.qLineEdit.
         """
-        selectedItemString = ' '.join(self.selectedItems().values())
+        selectedItemString = self.separator.join(self.selectedItems().values())
         self.qLineEdit.setReadOnly(False)
         self.qLineEdit.clear()
         self.qLineEdit.setText(selectedItemString)
         self.qLineEdit.setReadOnly(True)
+
+    def updateDropDownBoxWidth(self, text, qBox):
+        """
+        Update self.dropDownBoxWidthPixel.
+        """
+        fm = QFontMetrics(QFont())
+        textPixel = fm.width(text)
+        indicatorPixel = qBox.iconSize().width() * 1.4
+
+        if textPixel > self.dropDownBoxWidthPixel:
+            self.dropDownBoxWidthPixel = textPixel
+            self.view().setMinimumWidth(self.dropDownBoxWidthPixel + indicatorPixel)
+
+    def updateItemSelectedState(self, itemText, checkState, label_list: list = ['ALL', 'None']):
+        """
+        If "ALL" is selected, unselect other items.
+        If other item is selected, unselect "ALL" item.
+        """
+        if checkState != 0:
+            selectedItemDic = self.selectedItems()
+            selectedItemList = list(selectedItemDic.values())
+
+            if itemText in label_list:
+                if len(selectedItemList) > 1:
+                    for (i, qBox) in enumerate(self.checkBoxList):
+                        if (qBox.text() in selectedItemList) and (qBox.text() not in label_list):
+                            self.checkBoxList[i].setChecked(False)
+            else:
+                for label in label_list:
+                    if label in selectedItemList:
+                        for (i, qBox) in enumerate(self.checkBoxList):
+                            if qBox.text() == label:
+                                self.checkBoxList[i].setChecked(False)
+                                break
 
     def selectedItems(self):
         """
@@ -114,6 +234,42 @@ class QComboCheckBox(QComboBox):
         """
         super().clear()
         self.checkBoxList = []
+
+    def setItemsCheckStatus(self, item_list=[], item_state=Qt.Checked):
+        """
+        set check state Qt.Checked or Qt.Unchecked
+        """
+        for (i, qBox) in enumerate(self.checkBoxList):
+            if qBox.text() in item_list:
+                qBox.setCheckState(item_state)
+
+    def stateChangedconnect(self, func=None):
+        if func:
+            for (i, qBox) in enumerate(self.checkBoxList):
+                qBox.stateChanged.connect(func)
+
+    def setEditLineSeparator(self, separator=' '):
+        if separator:
+            self.separator = separator
+
+    def selectItems(self, item_list):
+        for text in item_list:
+            for (i, qBox) in enumerate(self.checkBoxList):
+                if qBox.text() == text:
+                    self.checkBoxList[i].setChecked(True)
+
+    def qBoxStateChanged(self, checkState):
+        """
+        Post process for qBox state change.
+        """
+        itemText = self.sender().text()
+
+        self.updateItemSelectedState(itemText, checkState)
+        self.updateLineEdit()
+
+    def setItemsCheckEnable(self, state):
+        for (i, qBox) in enumerate(self.checkBoxList):
+            self.checkBoxList[i].setEnabled(state)
 
 
 class FigureCanvasQTAgg(FigureCanvasQTAgg):
@@ -210,3 +366,30 @@ class NavigationToolbar2QT(NavigationToolbar2QT):
 
                     return info_string
         return ''
+
+
+class Dialog:
+    def __init__(self, title, info, icon=QMessageBox.Critical):
+        msgbox = QMessageBox()
+        msgbox.setText(info)
+        msgbox.setWindowTitle(title)
+        msgbox.setIcon(icon)
+        msgbox.setStandardButtons(QMessageBox.Ok)
+        reply = msgbox.exec()
+
+        if reply == QMessageBox.Ok:
+            return
+
+
+class ShowMessage(QThread):
+    """
+    Show message with tool message.
+    """
+    def __init__(self, title, message):
+        super(ShowMessage, self).__init__()
+        self.title = title
+        self.message = message
+
+    def run(self):
+        command = 'python3 ' + str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/tools/message.py --title "' + str(self.title) + '" --message "' + str(self.message) + '"'
+        os.system(command)

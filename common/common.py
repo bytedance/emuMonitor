@@ -70,7 +70,7 @@ def write_excel(excel_file, contents_list, specified_sheet_name='default'):
     workbook.save(excel_file)
 
 
-class CustomFormatter(logging.Formatter):
+class CustomPrintFormatter(logging.Formatter):
     # logging color setting
     grey = "\x1b[38;20m"
     bold_grey = "\x1b[38;1m"
@@ -84,17 +84,17 @@ class CustomFormatter(logging.Formatter):
     bold_purple = "\x1b[35;1m"
 
     reset = "\x1b[0m"
-    format = '[%(asctime)s] %(message)s'
     error_format = '[%(asctime)s] *Error*: %(message)s'
     warning_format = '[%(asctime)s] *Warning*: %(message)s'
     info_format = '[%(asctime)s] *Info*: %(message)s'
+    format = '[%(asctime)s]%(message)s'
 
     FORMATS = {
-        logging.DEBUG: bold_purple + format + reset,
-        logging.INFO: bold_green + info_format + reset,
-        logging.WARNING: bold_yellow + warning_format + reset,
-        logging.ERROR: bold_red + error_format + reset,
-        logging.CRITICAL: bold_grey + format + reset,
+        logging.DEBUG: purple + format + reset,
+        logging.INFO: green + info_format + reset,
+        logging.WARNING: yellow + warning_format + reset,
+        logging.ERROR: red + error_format + reset,
+        logging.CRITICAL: grey + format + reset,
     }
 
     def __init__(self):
@@ -106,7 +106,30 @@ class CustomFormatter(logging.Formatter):
         return formatter.format(record)
 
 
-def get_logger(name='root', level=logging.DEBUG):
+class CustomFileFormatter(logging.Formatter):
+    error_format = '[%(asctime)s] *Error*: %(message)s'
+    warning_format = '[%(asctime)s] *Warning*: %(message)s'
+    info_format = '[%(asctime)s] *Info*: %(message)s'
+    format = '[%(asctime)s]%(message)s'
+
+    FORMATS = {
+        logging.DEBUG: format,
+        logging.INFO: info_format,
+        logging.WARNING: warning_format,
+        logging.ERROR: error_format,
+        logging.CRITICAL: format,
+    }
+
+    def __init__(self):
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(fmt=log_fmt, datefmt=self.datefmt)
+        return formatter.format(record)
+
+
+def get_logger(save_log=False, log_path='log', name='root', level=logging.DEBUG):
     # create logger with 'spam_application'
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -116,8 +139,14 @@ def get_logger(name='root', level=logging.DEBUG):
     if not logger.handlers:
         ch = logging.StreamHandler()
         ch.setLevel(level)
-        ch.setFormatter(CustomFormatter())
+        ch.setFormatter(CustomPrintFormatter())
         logger.addHandler(ch)
+
+        if save_log:
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setLevel(level=logging.INFO)
+            file_handler.setFormatter(CustomFileFormatter())
+            logger.addHandler(file_handler)
 
     return logger
 

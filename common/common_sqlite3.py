@@ -3,8 +3,8 @@ import re
 import sys
 import sqlite3
 
-sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/common')
-import common
+sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']))
+from common import common
 
 
 def connect_db_file(db_file, mode='read'):

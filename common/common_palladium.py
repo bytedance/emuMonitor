@@ -2,31 +2,30 @@ import os
 import re
 import sys
 import copy
+import socket
+import yaml
 
-sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config')
-import config
-
-sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/common')
-import common
+sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']))
+from config import config
+from common import common
 
 
-def get_test_server_info(hardware, host=''):
+def get_test_server_info(hardware, test_server, host):
     test_server_info = []
 
-    if hardware == 'Z1':
-        test_server = config.Z1_test_server
-        host = config.Z1_test_server_host
-    elif hardware == 'Z2':
-        test_server = config.Z2_test_server
-        host = config.Z2_test_server_host
+    # get current server ip and hostname
+    current_hostname = socket.gethostname()
+    current_ip = socket.gethostbyname(current_hostname)
 
     if not test_server:
         common.print_warning('*Warning*: test_server path is not specified on config/config.py.')
     else:
         command = test_server
 
-        if host:
+        if host.strip() != str(current_ip).strip() and host.strip() != str(current_hostname).strip():
             command = 'ssh ' + str(host) + ' "' + str(command) + '"'
+        else:
+            command = '"' + str(command) + '"'
 
         (return_code, stdout, stderr) = common.run_command(command)
 
@@ -137,7 +136,17 @@ def parse_test_server_info(test_server_info):
     return palladium_dic
 
 
-def filter_palladium_dic(palladium_dic, specified_rack='', specified_cluster='', specified_logic_drawer='', specified_domain='', specified_owner='', specified_pid='', specified_tpod='', specified_design=''):
+def filter_palladium_dic(
+        palladium_dic,
+        specified_rack='',
+        specified_cluster='',
+        specified_logic_drawer='',
+        specified_domain='',
+        specified_owner='',
+        specified_pid='',
+        specified_tpod='',
+        specified_design=''
+):
     filtered_palladium_dic = copy.deepcopy(palladium_dic)
 
     if palladium_dic:
@@ -199,3 +208,129 @@ def filter_palladium_dic(palladium_dic, specified_rack='', specified_cluster='',
                         filtered_palladium_dic['domain_line_num'] += 1
 
     return filtered_palladium_dic
+
+
+def multifilter_palladium_dic(
+        palladium_dic,
+        specified_rack_list=[],
+        specified_cluster_list=[],
+        specified_logic_drawer_list=[],
+        specified_domain_list=[],
+        specified_owner_list=[],
+        specified_pid_list=[],
+        specified_tpod_list=[],
+        specified_design_list=[]
+):
+    filtered_palladium_dic = copy.deepcopy(palladium_dic)
+
+    if palladium_dic:
+        for rack in palladium_dic['rack'].keys():
+            # Filter rack
+            if specified_rack_list and ('ALL' not in specified_rack_list) and (rack not in specified_rack_list):
+                del filtered_palladium_dic['rack'][rack]
+            else:
+                for cluster in palladium_dic['rack'][rack]['cluster'].keys():
+                    # Filter cluster
+                    if specified_cluster_list and ('ALL' not in specified_cluster_list) and (cluster not in specified_cluster_list):
+                        del filtered_palladium_dic['rack'][rack]['cluster'][cluster]
+                    else:
+                        for logic_drawer in palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'].keys():
+                            # Filter logic_drawer
+                            if specified_logic_drawer_list and ('ALL' not in specified_logic_drawer_list) and (logic_drawer not in specified_logic_drawer_list):
+                                del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]
+                            else:
+                                for domain in palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'].keys():
+                                    # Filter domain
+                                    if specified_domain_list and ('ALL' not in specified_domain_list) and (domain not in specified_domain_list):
+                                        del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]
+                                    else:
+                                        # Filter owner
+                                        owner = palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]['owner']
+
+                                        if specified_owner_list and ('ALL' not in specified_owner_list) and (owner not in specified_owner_list):
+                                            del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]
+                                            continue
+
+                                        # Filter pid
+                                        pid = palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]['pid']
+
+                                        if specified_pid_list and ('ALL' not in specified_pid_list) and (pid not in specified_pid_list):
+                                            del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]
+                                            continue
+
+                                        # Filter tpod
+                                        tpod = palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]['tpod']
+
+                                        if specified_tpod_list and ('ALL' not in specified_tpod_list) and (tpod not in specified_tpod_list):
+                                            del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]
+                                            continue
+
+                                        # Filter design
+                                        design = palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]['design']
+
+                                        if specified_design_list and ('ALL' not in specified_design_list) and (design not in specified_design_list):
+                                            del filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'][domain]
+                                            continue
+
+        # Update domain_line_num.
+        filtered_palladium_dic['domain_line_num'] = 0
+
+        for rack in filtered_palladium_dic['rack'].keys():
+            for cluster in filtered_palladium_dic['rack'][rack]['cluster'].keys():
+                for logic_drawer in filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'].keys():
+                    for domain in filtered_palladium_dic['rack'][rack]['cluster'][cluster]['logic_drawer'][logic_drawer]['domain'].keys():
+                        filtered_palladium_dic['domain_line_num'] += 1
+
+    return filtered_palladium_dic
+
+
+def get_palladium_host_info():
+    """
+    hardware_host_dic = {<hardware>: {'test_server_host': <test_server_host>, 'test_server': <test_server>
+                                        'project_list': <project_list>, 'project_primary_factors': '',
+                                        ''default_project_cost_dic': <default_project_cost_dic>, 'domain_dic': <domain_dic>}}
+    """
+    logger = common.get_logger()
+    hardware_dic = {}
+    palladium_config_dir = os.path.join(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config/palladium/')
+
+    if not os.path.exists(palladium_config_dir):
+        logger.error("Could not find any hardware information, please check!")
+        sys.exit(1)
+
+    for hardware in os.listdir(palladium_config_dir):
+        if re.match('label', hardware):
+            continue
+
+        hardware_dic.setdefault(hardware, {})
+        hardware_config_dir = os.path.join(palladium_config_dir, '%s/' % str(hardware))
+
+        for file in os.listdir(hardware_config_dir):
+            if re.match(r'project_list', file):
+                file_path = os.path.join(hardware_config_dir, file)
+                hardware_dic[hardware]['project_list'], hardware_dic[hardware]['default_project_cost_dic'] = common.parse_project_list_file(file_path)
+                hardware_dic[hardware]['default_project_cost_dic']['others'] = 0
+
+            if not re.match(r'config.py', file):
+                continue
+
+            file_path = os.path.join(hardware_config_dir, file)
+
+            with open(file_path, 'r') as ff:
+                for line in ff:
+                    if my_match := re.match(r'test_server\s*=\s*(\S+)\s*', line):
+                        hardware_dic[hardware]['test_server'] = my_match.group(1)
+                    elif my_match := re.match(r'test_server_host\s*=\s*(\S+)\s*', line):
+                        hardware_dic[hardware]['test_server_host'] = my_match.group(1).replace('"', '')
+                    elif my_match := re.match(r'project_primary_factors\s*=\s*\"(.*)\"\s*', line):
+                        hardware_dic[hardware]['project_primary_factors'] = my_match.group(1)
+
+        hardware_domain_file = os.path.join(config.db_path, '%s/domain_list.yaml' % str(hardware))
+
+        if not os.path.exists(hardware_domain_file):
+            logger.error("Could not find %s domain list, please use psample -H %s first!" % (hardware, hardware))
+        else:
+            with open(hardware_domain_file, 'r') as df:
+                hardware_dic[hardware]['domain_dic'] = yaml.load(df, Loader=yaml.FullLoader)
+
+    return hardware_dic

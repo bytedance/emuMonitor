@@ -6,8 +6,8 @@ import yaml
 from datetime import datetime
 
 # Import config file
-sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']) + '/config')
-import config
+sys.path.append(str(os.environ['EMU_MONITOR_INSTALL_PATH']))
+from config import config
 
 
 def parse_current_zebu_info(current_zebu_info):
@@ -41,10 +41,14 @@ def parse_current_zebu_info(current_zebu_info):
                 pid = 'None'
                 suspend = 'None'
 
+            try:
+                (unit, module, sub_module) = module_info.split('.')
+            except Exception:
+                continue
+
             if module_info not in current_zebu_dic['module_info_list']:
                 current_zebu_dic['module_info_list'].append(module_info)
 
-            (unit, module, sub_module) = module_info.split('.')
             current_zebu_dic['info'].setdefault(unit, {})
             current_zebu_dic['info'][unit].setdefault(module, {})
             current_zebu_dic['info'][unit][module].setdefault(sub_module, {})
@@ -158,7 +162,9 @@ def filter_zebu_dic(zebu_dic, specified_unit='', specified_module='', specified_
                 for module in zebu_dic['info'][unit].keys():
                     if specified_module and specified_module != 'ALL' and specified_module != module:
                         del filtered_zebu_dic['info'][unit][module]
-                        filtered_zebu_dic['module_list'].remove(module)
+
+                        if module in filtered_zebu_dic['module_list']:
+                            filtered_zebu_dic['module_list'].remove(module)
                     else:
                         for sub_module in zebu_dic['info'][unit][module].keys():
                             if specified_sub_module and specified_sub_module != 'ALL' and specified_sub_module != sub_module:
