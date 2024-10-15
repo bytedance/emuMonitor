@@ -34,7 +34,7 @@ def gen_shell_tools():
     """
     Generate shell scripts under <EMU_MONITOR_INSTALL_PATH>/tools.
     """
-    tool_list = ['bin/pmonitor', 'bin/psample', 'bin/zmonitor', 'tools/patch', 'test/pmonitor_test', 'test/psample_test', 'test/zmonitor_test', 'test/gen_test_db']
+    tool_list = ['bin/palladium_monitor', 'bin/psample', 'bin/zebu_monitor', 'bin/protium_sample', 'bin/protium_monitor', 'tools/patch']
 
     for tool_name in tool_list:
         tool = str(CWD) + '/' + str(tool_name)
@@ -60,15 +60,10 @@ export EMU_MONITOR_INSTALL_PATH=""" + str(CWD) + """
 """ + str(ld_library_path_setting) + """
 
 # Execute """ + str(tool_name) + """.py.'""")
-            if tool_name == 'test/gen_test_db':
-                with open(tool, 'a+') as SP:
-                    SP.write('\npython3 $EMU_MONITOR_INSTALL_PATH/' + str(tool_name) + '.py -t palladium')
-                    SP.write('\npython3 $EMU_MONITOR_INSTALL_PATH/' + str(tool_name) + '.py -t zebu$@')
-            else:
-                with open(tool, 'a+') as SP:
-                    SP.write('\npython3 $EMU_MONITOR_INSTALL_PATH/' + str(tool_name) + '.py $@')
+            with open(tool, 'a+') as SP:
+                SP.write('\npython3 $EMU_MONITOR_INSTALL_PATH/' + str(tool_name) + '.py $@')
 
-            os.chmod(tool, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+            os.chmod(tool, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
         except Exception as error:
             print('*Error*: Failed on generating script "' + str(tool) + '": ' + str(error))
             sys.exit(1)
@@ -88,36 +83,18 @@ def gen_config_file():
     else:
         try:
             db_path = str(CWD) + '/db'
+            tool_path = str(CWD) + '/tools'
 
             with open(config_file, 'w') as CF:
-                CF.write('''######## For Palladium ########
-# Specify the database directory.
+                CF.write('''# Specify the database directory.
 db_path = "''' + str(db_path) + '''"
 
-# Specify test_server path for Palladium Z1.
-Z1_test_server = ""
-
-# Specify test_server path for Palladium Z2.
-Z2_test_server = ""
-
-# Specify test_server execute hosts for Palladium Z1, make sure you can ssh the host without password.
-Z1_test_server_host = ""
-
-# Specify test_server execute hosts for Palladium Z2, make sure you can ssh the host without password.
-Z2_test_server_host = ""
-
-# Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
-Z1_project_primary_factors = "user  execute_host"
-
-Z2_project_primary_factors = "user  execute_host"
-
+######## For Palladium ########
 # Enable "others" project on COST tab, so cost can always be shared.
 palladium_enable_cost_others_project = True
 
 # Use default cost rate for no-use emu
 palladium_enable_use_default_cost_rate = True
-
-
 
 
 ######## For Zebu ########
@@ -126,6 +103,9 @@ zRscManager = ""
 
 # Specify zebu system directory.
 ZEBU_SYSTEM_DIR = ""
+
+# Specify zebu system directory.
+zebu_system_dir_record = ""
 
 # Specify check status command.
 check_status_command = zRscManager + \" -nc -sysstat \" + ZEBU_SYSTEM_DIR + \" -pid ; rm ZEBU_GLOBAL_SYSTEM_DIR_global_mngt.db\"
@@ -142,64 +122,26 @@ zebu_enable_cost_others_project = True
 # Use default cost rate for no-use emu
 zebu_enable_use_default_cost_rate = True
 
+
+######## For Protium ########
+# Check protium information tcl file
+ptmRun_check_info_file = "''' + str(tool_path) + '''/check.info.tcl"
+
+# Enable "others" project on COST tab, so cost can always be shared.
+protium_enable_cost_others_project = True
+
+# Use default cost rate for no-use emu
+protium_enable_use_default_cost_rate = True
 ''')
 
-            os.chmod(config_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
-            os.chmod(db_path, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+            os.chmod(config_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
+            os.chmod(db_path, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
         except Exception as error:
             print('*Error*: Failed on opening config file "' + str(config_file) + '" for write: ' + str(error))
             sys.exit(1)
 
 
-def gen_test_config_file():
-    """
-    Generate test config file <EMU_MONITOR_INSTALL_PATH>/test/test_config/test_config.py.
-    """
-    test_config_file = str(CWD) + '/test/test_config/test_config.py'
-
-    print('')
-    print('>>> Generate config file "' + str(test_config_file) + '".')
-
-    if os.path.exists(test_config_file):
-        print('*Warning*: config file "' + str(test_config_file) + '" already exists, will not update it.')
-    else:
-        try:
-            test_path = str(CWD) + '/test'
-
-            with open(test_config_file, 'w') as CF:
-                CF.write('''# Specify test hardware .
-test_hardware = ""
-
-# Specify the test database directory.
-db_path = "''' + str(test_path) + '''/test_data/test_db"
-
-# Specify project(s) file.
-project_list_file = "''' + str(test_path) + '''/test_config/project_list"
-
-# Specify project & execute_host relationship file.
-project_execute_host_file = "''' + str(test_path) + '''/test_config/project_execute_host"
-
-# Specify project & user relationship file.
-project_user_file = "''' + str(test_path) + '''/test_config/project_user"
-
-# Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
-project_primary_factors = "user  execute_host"
-
-# Specify test_result which used for test
-test_result = "''' + str(test_path) + '''/test_data/test_result"
-
-# Specify test_db generate template db
-test_palladium_db = "''' + str(test_path) + '''/test_data/test_palladium_db_file"
-''')
-
-            os.chmod(test_config_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
-            os.chmod(test_path, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
-        except Exception as error:
-            print('*Error*: Failed on opening config file "' + str(test_config_file) + '" for write: ' + str(error))
-            sys.exit(1)
-
-
-def gen_cost_config_file():
+def gen_sub_config_file():
     print('')
 
     zebu_project_list_file = str(CWD) + '/config/zebu/project_list'
@@ -209,22 +151,68 @@ def gen_cost_config_file():
     Z1_project_list_file = str(CWD) + '/config/palladium/Z1/project_list'
     Z1_execute_host_file = str(CWD) + '/config/palladium/Z1/project_execute_host'
     Z1_user_file = str(CWD) + '/config/palladium/Z1/project_user'
+    Z1_config_file = str(CWD) + '/config/palladium/Z1/config.py'
 
     Z2_project_list_file = str(CWD) + '/config/palladium/Z2/project_list'
     Z2_execute_host_file = str(CWD) + '/config/palladium/Z2/project_execute_host'
     Z2_user_file = str(CWD) + '/config/palladium/Z2/project_user'
+    Z2_config_file = str(CWD) + '/config/palladium/Z2/config.py'
+
+    X1_project_list_file = str(CWD) + '/config/protium/X1/project_list'
+    X1_execute_host_file = str(CWD) + '/config/protium/X1/project_execute_host'
+    X1_user_file = str(CWD) + '/config/protium/X1/project_user'
+    X1_config_file = str(CWD) + '/config/protium/X1/config.py'
+
+    X2_project_list_file = str(CWD) + '/config/protium/X2/project_list'
+    X2_execute_host_file = str(CWD) + '/config/protium/X2/project_execute_host'
+    X2_user_file = str(CWD) + '/config/protium/X2/project_user'
+    X2_config_file = str(CWD) + '/config/protium/X2/config.py'
 
     gen_project_list_file(zebu_project_list_file)
     gen_project_list_file(Z1_project_list_file)
     gen_project_list_file(Z2_project_list_file)
+    gen_project_list_file(X1_project_list_file)
+    gen_project_list_file(X2_project_list_file)
 
     gen_project_execute_host_file(zebu_execute_host_file)
     gen_project_execute_host_file(Z1_execute_host_file)
     gen_project_execute_host_file(Z2_execute_host_file)
+    gen_project_execute_host_file(X1_execute_host_file)
+    gen_project_execute_host_file(X2_execute_host_file)
 
     gen_project_user_file(zebu_user_file)
     gen_project_user_file(Z1_user_file)
     gen_project_user_file(Z2_user_file)
+    gen_project_user_file(X1_user_file)
+    gen_project_user_file(X2_user_file)
+
+    gen_palladium_config_file(Z1_config_file)
+    gen_palladium_config_file(Z2_config_file)
+
+    gen_protium_config_file(X1_config_file)
+    gen_protium_config_file(X2_config_file)
+
+
+def gen_check_info_file():
+    # Generate protium check information tcl file.
+    check_file_file = str(CWD) + '/tools/check.info.tcl'
+
+    print('>>> Generate protium check information file "' + str(check_file_file) + '".\n')
+
+    if os.path.exists(check_file_file):
+        print('    *Warning*: file "' + str(check_file_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(check_file_file, 'w') as PLF:
+                PLF.write('''
+sys
+exit
+    ''')
+
+            os.chmod(check_file_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening file "' + str(check_file_file) + '" for write: ' + str(error))
+            sys.exit(1)
 
 
 def gen_project_execute_host_file(project_execute_host_file):
@@ -242,7 +230,7 @@ def gen_project_execute_host_file(project_execute_host_file):
 
 ''')
 
-            os.chmod(project_execute_host_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+            os.chmod(project_execute_host_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
         except Exception as error:
             print('*Error*: Failed on opening config file "' + str(project_execute_host_file) + '" for write: ' + str(error))
             sys.exit(1)
@@ -263,7 +251,7 @@ def gen_project_list_file(project_list_file):
 
 ''')
 
-            os.chmod(project_list_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+            os.chmod(project_list_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
         except Exception as error:
             print('*Error*: Failed on opening config file "' + str(project_list_file) + '" for write: ' + str(error))
             sys.exit(1)
@@ -284,10 +272,69 @@ def gen_project_user_file(project_user_file):
 
 ''')
 
-            os.chmod(project_user_file, stat.S_IRWXU+stat.S_IRWXG+stat.S_IRWXO)
+            os.chmod(project_user_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
         except Exception as error:
             print('*Error*: Failed on opening config file "' + str(project_user_file) + '" for write: ' + str(error))
             sys.exit(1)
+
+
+def gen_palladium_config_file(palladium_config_file):
+    # Generate project_user_file.
+    print('>>> Generate palladium config file "' + str(palladium_config_file) + '".\n')
+
+    if os.path.exists(palladium_config_file):
+        print('    *Warning*: config file "' + str(palladium_config_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(palladium_config_file, 'w') as PUF:
+                PUF.write('''
+# Specify test_server path for Palladium hardware.
+test_server = ""
+
+# Specify test_server execute hosts for Palladium hardware, make sure you can ssh the host without password.
+test_server_host = ""
+
+# Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
+project_primary_factors = "user  execute_host"
+    ''')
+
+            os.chmod(palladium_config_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening config file "' + str(palladium_config_file) + '" for write: ' + str(error))
+            sys.exit(1)
+
+
+def gen_protium_config_file(protium_config_file):
+    # Generate project_user_file.
+    print('>>> Generate protium config file "' + str(protium_config_file) + '".\n')
+
+    if os.path.exists(protium_config_file):
+        print('    *Warning*: config file "' + str(protium_config_file) + '" already exists, will not update it.')
+    else:
+        try:
+            with open(protium_config_file, 'w') as PUF:
+                PUF.write('''
+# protium server
+host = ""
+
+# Specify protium system ip list file
+PTM_SYS_IP_LIST = ""
+
+# Specify ptmRun path for protium
+ptmRun = ""
+
+# Specify ptmRun bsub command, example "bsub -q normal -Is". if "", run "ptmRun" locally rather than using LSF scheduler
+ptmRun_bsub_command = ""
+
+# Specify which are the primary factors when getting project information, it could be one or serveral items between "user/execute_host/submit_host".
+project_primary_factors = "user  execute_host"
+        ''')
+
+            os.chmod(protium_config_file, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
+        except Exception as error:
+            print('*Error*: Failed on opening config file "' + str(protium_config_file) + '" for write: ' + str(error))
+            sys.exit(1)
+
 
 ################
 # Main Process #
@@ -296,8 +343,8 @@ def main():
     check_python_version()
     gen_shell_tools()
     gen_config_file()
-    gen_test_config_file()
-    gen_cost_config_file()
+    gen_sub_config_file()
+    gen_check_info_file()
 
     print('')
     print('Done, Please enjoy it.')
