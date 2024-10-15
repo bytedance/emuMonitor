@@ -24,41 +24,9 @@ Come into install directory, then execute below command.
 CONFIGURATION:
 ================
 After installing the tool, come into <EMU_MONITOR_INSTALL_PATH>/config directory,
-then update file config.py for your own configuration.
-# For palladium:
+then update file config.py for your own configuration. 
+Refer to the emuMonitor_user_manual.pdf in the doc directory for configuration references.
 
-    db_path = ""
-    Z1_test_server = ""
-    Z2_test_server = ""
-    Z1_test_server_host = ""
-    Z2_test_server_host = "
-    project_list_file = ""
-    project_execute_host_file = ""
-    project_user_file = ""
-    project_primary_factors = ""
-
-"db_path" is used to save database files, default is on <EMU_MONITOR_INSTALL_PATH>/db,
-you can re-point it into your own path.
-"Z1_test_server" is used to specify test_server path for palladium Z1.
-"Z2_test_server" is used to specify test_server path for palladium Z2.
-"Z1_test_server_host" is used to specify test_server default execute host for palladium Z1.
-"Z2_test_server_host" is used to specify test_server default execute host for palladium Z2.
-"project_list_file" is used to specify project list
-"project_execute_host_file" is used to specify project execute host file
-"project_user_file" is used to specify project user file
-"project_primary_factors" is used to specify project primary factors
-
-# For zebu:
-
-    module = ""
-    bash = ""
-    check_status_command = ""
-    check_report_command = ""
-
-module is what you need to load before use zRscManager.
-bash is what you need to source before use zRscManager.
-check_status_command is used to check current zebu status.
-check_report_command is used to check history zebu status.
 
 SAMPLING:
 ================
@@ -66,15 +34,25 @@ Use bin/psample sample current palladium usage information first, then pmonitor 
 palladium current/history/utilization information.
 Below is the suggested crontab setting on sampling data.
 
-On Z1 compile host.
+On Palladium Z1 compile host.
 SHELL=/bin/csh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
-0 */2 * * * <PALLADIUM_MONITOR_INSTALL_PATH>/bin/psample -H Z1
+0 */2 * * * <EMU_MONITOR_INSTALL_PATH>/bin/psample -H Z1
 
-On Z2 compile host.
+On Palladium Z2 compile host.
 SHELL=/bin/csh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
-0 */2 * * * <PALLADIUM_MONITOR_INSTALL_PATH>/bin/psample -H Z2
+0 */2 * * * <EMU_MONITOR_INSTALL_PATH>/bin/psample -H Z2
+
+On Protium X1 compile host.
+SHELL=/bin/csh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
+0 */2 * * * <EMU_MONITOR_INSTALL_PATH>/bin/protium_sample -H X1
+
+On Protium X2 compile host.
+SHELL=/bin/csh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:<BSUB_PATH>
+0 */2 * * * <EMU_MONITOR_INSTALL_PATH>/bin/protium_sample -H X2
 
 Suggested sampling frequency is 2 hours.
 
@@ -82,11 +60,13 @@ Suggested sampling frequency is 2 hours.
 MONITORING:
 ================
 Execute below command to start palladium monitor function.
-<EMU_MONITOR_INSTALL_PATH>/bin/pmonitor
+<EMU_MONITOR_INSTALL_PATH>/bin/palladium_monitor
 
 Execute below command to start zebu monitor function.
-<ZEBU_MONITOR_INSTALL_PATH>/bin/zmonitor
+<EMU_MONITOR_INSTALL_PATH>/bin/zebu_monitor
 
+Execute below command to start protium monitor function.
+<EMU_MONITOR_INSTALL_PATH>/bin/protium_monitor
 
 
 LICENSE:
