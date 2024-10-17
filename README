@@ -11,6 +11,9 @@ The tool use flow is as below:
 # For zebu:
     installation -> configuration -> monitoring
 
+# For protium:
+    installation -> configuration -> sampling -> monitoring
+
 
 INSTALLATION:
 ================
